@@ -36,6 +36,9 @@ const JPEG_QUALITY: u8 = 90;
 /// 小于这个尺寸（物理像素）的选区视为误点
 const MIN_SELECTION: i32 = 24;
 const COPIED_FEEDBACK: Duration = Duration::from_millis(700);
+/// 等 ESC 松开的最长时间，以及切回焦点前后各保持拦截的时长
+const ESC_RELEASE_TIMEOUT: Duration = Duration::from_secs(2);
+const ESC_GRACE: Duration = Duration::from_millis(120);
 
 pub const EVT_SELECTOR_FRAME: &str = "selector:frame";
 pub const EVT_OVERLAY_STATE: &str = "overlay:state";
@@ -346,7 +349,8 @@ pub fn copy_reply(app: &AppHandle, index: usize) -> Result<(), String> {
     app.clipboard().write_text(text).map_err(|e| e.to_string())?;
     state.telemetry.track("reply_clicked", session, elapsed_ms(started), None);
     emit_overlay(app, OverlayPayload::Copied { session });
-    hotkey::set_escape(app, false);
+    // 焦点马上还给聊天软件，方便直接 Ctrl+V；全局 ESC 等 overlay 关闭后再注销，
+    // 这段时间里按 ESC 仍由我们处理，不会漏给聊天软件
     if let Some(h) = prev_foreground {
         platform::restore_foreground(h);
     }
@@ -367,10 +371,43 @@ pub fn copy_reply(app: &AppHandle, index: usize) -> Result<(), String> {
         };
         if done {
             overlay::hide(&app);
+            hotkey::set_escape(&app, false);
             state.telemetry.track("overlay_closed", session, None, Some(CloseReason::Copied.as_str()));
         }
     });
     Ok(())
+}
+
+fn still_idle(app: &AppHandle, session: u64) -> bool {
+    let state = app.state::<AppState>();
+    let flow = state.flow.lock().unwrap();
+    flow.session == session && flow.phase == Phase::Idle
+}
+
+/// ESC 取消后：等 ESC 松开 → 把焦点还给聊天软件 → 再保持拦截一小段时间 → 注销全局 ESC。
+///
+/// 如果立刻注销 ESC 并切回焦点，用户还按着的 ESC（以及按键重复）会发给聊天软件；
+/// 微信、Telegram 等在前台收到 ESC 会隐藏主窗口或关闭当前会话。
+fn release_escape_after_keyup(app: &AppHandle, session: u64, restore: Option<isize>) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let deadline = Instant::now() + ESC_RELEASE_TIMEOUT;
+        while platform::is_escape_down() && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+        tokio::time::sleep(ESC_GRACE).await;
+        // 期间已开始新流程：ESC 和焦点归新流程管
+        if !still_idle(&app, session) {
+            return;
+        }
+        if let Some(h) = restore {
+            platform::restore_foreground(h);
+        }
+        tokio::time::sleep(ESC_GRACE).await;
+        if still_idle(&app, session) {
+            hotkey::set_escape(&app, false);
+        }
+    });
 }
 
 /// 取消 / 关闭整个流程。任何状态下调用都是安全的。
@@ -391,21 +428,24 @@ pub fn cancel(app: &AppHandle, reason: CloseReason) {
     state.frames.lock().unwrap().clear();
     selector::hide_all(app);
     overlay::hide(app);
-    if reason != CloseReason::Restart {
-        hotkey::set_escape(app, false);
-    }
 
     if prev_phase == Phase::Idle {
+        // 空闲时收到的 ESC 是取消后残留的按键：直接吞掉，由 release_escape_after_keyup 负责注销
+        if !matches!(reason, CloseReason::Restart | CloseReason::Escape) {
+            hotkey::set_escape(app, false);
+        }
         return;
     }
     if matches!(prev_phase, Phase::Analyzing | Phase::Showing) {
         state.telemetry.track("overlay_closed", session, None, Some(reason.as_str()));
     }
-    // ESC 取消时把焦点还给聊天软件；失焦关闭说明用户已经点到别处，不要抢焦点
-    if reason == CloseReason::Escape {
-        if let Some(h) = prev_foreground {
-            platform::restore_foreground(h);
-        }
+    match reason {
+        // ESC 取消：等按键松开后再还焦点、再注销 ESC
+        CloseReason::Escape => release_escape_after_keyup(app, session, prev_foreground),
+        // 新流程会立即重新接管 ESC
+        CloseReason::Restart => {}
+        // 失焦关闭说明用户已经点到别处，不抢焦点
+        CloseReason::Blur | CloseReason::Copied => hotkey::set_escape(app, false),
     }
 }
 

@@ -40,6 +40,10 @@ function thinkingConfig(env: Env): Anthropic.Beta.Messages.BetaThinkingConfigPar
 }
 
 export async function generateReplies(env: Env, input: ReplyInput, signal?: AbortSignal): Promise<ReplyOutput> {
+  if (!env.ANTHROPIC_API_KEY) {
+    console.error("[anthropic] ANTHROPIC_API_KEY is not configured (.dev.vars / wrangler secret); restart wrangler after editing .dev.vars");
+    throw new ApiError("internal", "Server AI credentials are not configured.");
+  }
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: REQUEST_TIMEOUT_MS });
   const model = env.MODEL || "claude-opus-5-5";
   const effort = EFFORTS.has(env.EFFORT) ? (env.EFFORT as Effort) : undefined; // "none" 或空：不传（Haiku 4.5 不支持 effort）
@@ -122,5 +126,6 @@ function mapSdkError(err: unknown): ApiError {
   if (err instanceof Anthropic.RateLimitError) return new ApiError("upstream_error", "The AI service is busy.");
   if (err instanceof Anthropic.BadRequestError) return new ApiError("upstream_error", "The AI service rejected the request.");
   if (err instanceof Anthropic.APIError) return new ApiError("upstream_error", `AI service error (${err.status ?? "?"}).`);
+  console.error("[anthropic] unexpected error:", err instanceof Error ? `${err.name}: ${err.message}` : String(err));
   return new ApiError("internal", "Unexpected error calling the AI service.");
 }

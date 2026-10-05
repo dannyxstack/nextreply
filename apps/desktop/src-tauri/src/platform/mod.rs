@@ -13,6 +13,11 @@ mod fallback {
     }
 
     pub fn restore_foreground(_handle: isize) {}
+
+    /// macOS 不还原焦点，也就没有 ESC 漏给聊天软件的问题。
+    pub fn is_escape_down() -> bool {
+        false
+    }
 }
 #[cfg(not(windows))]
 pub use fallback::*;
