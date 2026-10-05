@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for all NextReply windows (app commands are allowed by default)",
+  "windows": ["settings", "overlay", "selector-*"],
+  "permissions": ["core:default"]
+}

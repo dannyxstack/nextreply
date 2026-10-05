@@ -1,0 +1,45 @@
+[package]
+name = "nextreply"
+version = "0.1.0"
+description = "AI reply assistant"
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "nextreply_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+async-trait = "0.1.92"
+base64 = "0.23.1"
+env_logger = "0.11.11"
+image = { version = "0.25.6", default-features = false, features = ["jpeg", "png"] }
+keyring = { version = "3.6.3", features = ["windows-native", "apple-native"] }
+log = "0.4.34"
+reqwest = { version = "0.13.3", default-features = false, features = ["json", "native-tls"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sys-locale = "0.3.2"
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1.53.2", features = ["time"] }
+uuid = { version = "1.20.0", features = ["v4"] }
+xcap = "0.9.8"
+
+[profile.dev.package."*"]
+# 截图、图片编码在 debug 下太慢，依赖用优化编译
+opt-level = 2
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

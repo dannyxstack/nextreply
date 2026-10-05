@@ -1,0 +1,23 @@
+name = "nextreply-server"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 本地开发时 wrangler 会用本地模拟的 KV；部署前用 `wrangler kv namespace create QUOTA` 创建并替换 id
+[[kv_namespaces]]
+binding = "QUOTA"
+id = "00000000000000000000000000000000"
+
+[vars]
+MODEL = "claude-opus-5-5"
+EFFORT = "low"
+THINKING = "auto"
+FALLBACKS = "default"
+MAX_TOKENS = "8000"
+DAILY_QUOTA = "30"
+IP_DAILY_QUOTA = "200"
+REGISTER_PER_IP = "20"
+
+# 机密通过 `wrangler secret put` 设置（本地放在 .dev.vars）：
+#   ANTHROPIC_API_KEY
+#   TOKEN_SECRET
