@@ -21,6 +21,7 @@ use crate::{
         AiProvider,
     },
     capture::{
+        self,
         crop::{self, CssRect},
         ScreenCapturer, XcapCapturer,
     },
@@ -125,6 +126,14 @@ pub fn start(app: &AppHandle) {
             return;
         }
     };
+    log::debug!("capture done in {:?}", started.elapsed());
+    // 立即在后台准备显示用的编码，和窗口定位并行，selector 请求时直接取缓存
+    for f in &frames {
+        let (image, display) = (f.image.clone(), f.display.clone());
+        tauri::async_runtime::spawn_blocking(move || {
+            display.get_or_init(|| std::sync::Arc::new(capture::frames::encode_bmp(&image)));
+        });
+    }
     let bounds: Vec<Rect> = frames.iter().map(|f| f.bounds).collect();
     {
         let mut store = state.frames.lock().unwrap();
@@ -168,7 +177,12 @@ pub fn current_selector_frame(app: &AppHandle, monitor: usize) -> Option<Selecto
 }
 
 /// 冻结画面加载完成后再显示窗口，避免闪出上一次的旧画面。
-pub fn on_selector_ready(app: &AppHandle, monitor: usize, session: u64) {
+/// `loaded` 是页面实际加载的帧编号，必须和窗口所在显示器一致，否则会显示错屏的画面。
+pub fn on_selector_ready(app: &AppHandle, monitor: usize, session: u64, loaded: usize) {
+    if loaded != monitor {
+        log::error!("selector {monitor} loaded frame of monitor {loaded}, refusing to show");
+        return;
+    }
     let state = app.state::<AppState>();
     {
         let flow = state.flow.lock().unwrap();
@@ -181,6 +195,7 @@ pub fn on_selector_ready(app: &AppHandle, monitor: usize, session: u64) {
         return;
     };
     let _ = win.show();
+    log::debug!("selector {monitor} shown {:?} after hotkey", state.flow.lock().unwrap().started.map(|t| t.elapsed()));
     let under_cursor = app
         .cursor_position()
         .map(|p| bounds.contains_point(p.x as i32, p.y as i32))

@@ -82,7 +82,7 @@ export function Selector() {
         className="frame"
         src={frameUrl(frame)}
         draggable={false}
-        onLoad={() => selectorReady(frame.session)}
+        onLoad={() => selectorReady(frame)}
         alt=""
       />
       {rect ? (

@@ -32,6 +32,10 @@ tokio = { version = "1.53.2", features = ["time"] }
 uuid = { version = "1.20.0", features = ["v4"] }
 xcap = "0.9.8"
 
+[profile.dev]
+# 本 crate 里有逐像素循环（BMP 编码），debug 下也做基础优化
+opt-level = 1
+
 [profile.dev.package."*"]
 # 截图、图片编码在 debug 下太慢，依赖用优化编译
 opt-level = 2

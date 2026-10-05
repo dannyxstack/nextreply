@@ -1,6 +1,7 @@
 // 与 Rust 侧 commands.rs / flow.rs 对应的类型和调用封装。
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 // ---------- selector ----------
 
@@ -18,13 +19,22 @@ export interface CssRect {
 
 export const frameUrl = (f: SelectorFrame) => `${convertFileSrc(String(f.monitor), "frame")}?s=${f.session}`;
 
+/** 当前 selector 窗口负责的显示器编号（窗口标签为 selector-<n>）。 */
+export const ownMonitor = (): number => Number(getCurrentWebviewWindow().label.replace("selector-", ""));
+
 export const selectorFrame = () => invoke<SelectorFrame | null>("selector_frame");
-export const selectorReady = (session: number) => invoke<void>("selector_ready", { session });
+export const selectorReady = (f: SelectorFrame) => invoke<void>("selector_ready", { session: f.session, monitor: f.monitor });
 export const selectionDone = (session: number, rect: CssRect) =>
   invoke<void>("selection_done", { session, rect, viewportW: window.innerWidth, viewportH: window.innerHeight });
 export const cancelFlow = () => invoke<void>("cancel_flow");
-export const onSelectorFrame = (cb: (f: SelectorFrame) => void): Promise<UnlistenFn> =>
-  listen<SelectorFrame>("selector:frame", (e) => cb(e.payload));
+// 全局 listen() 会收到发给所有窗口的事件（emit_to 的目标不做过滤），
+// 必须只接受属于本窗口显示器的帧，否则多屏时会显示别的屏幕的画面。
+export const onSelectorFrame = (cb: (f: SelectorFrame) => void): Promise<UnlistenFn> => {
+  const mine = ownMonitor();
+  return listen<SelectorFrame>("selector:frame", (e) => {
+    if (e.payload.monitor === mine) cb(e.payload);
+  });
+};
 
 // ---------- overlay ----------
 

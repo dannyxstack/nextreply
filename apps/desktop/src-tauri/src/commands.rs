@@ -34,9 +34,9 @@ pub fn selector_frame(app: AppHandle, window: WebviewWindow) -> Option<SelectorF
 }
 
 #[tauri::command]
-pub fn selector_ready(app: AppHandle, window: WebviewWindow, session: u64) {
+pub fn selector_ready(app: AppHandle, window: WebviewWindow, session: u64, monitor: usize) {
     if let Some(i) = monitor_index(&window) {
-        flow::on_selector_ready(&app, i, session);
+        flow::on_selector_ready(&app, i, session, monitor);
     }
 }
 

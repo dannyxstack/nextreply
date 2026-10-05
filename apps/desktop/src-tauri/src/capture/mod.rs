@@ -14,6 +14,8 @@ pub struct MonitorFrame {
     /// 全局虚拟桌面中的物理像素区域
     pub bounds: Rect,
     pub image: Arc<RgbaImage>,
+    /// 给 selector 显示用的编码结果（首次请求时生成）
+    pub display: frames::DisplayCache,
 }
 
 pub trait ScreenCapturer {
@@ -33,7 +35,7 @@ impl ScreenCapturer for XcapCapturer {
             let y = m.y().map_err(|e| e.to_string())?;
             // TODO(macOS): xcap 在 mac 上返回的是逻辑坐标，届时需要乘以 m.scale_factor() 换算成物理坐标
             let bounds = Rect::new(x, y, image.width() as i32, image.height() as i32);
-            frames.push(MonitorFrame { bounds, image: Arc::new(image) });
+            frames.push(MonitorFrame { bounds, image: Arc::new(image), display: Default::default() });
         }
         if frames.is_empty() {
             return Err("no monitors found".into());
