@@ -5,9 +5,24 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 // ---------- selector ----------
 
+/** Rust 侧的物理像素矩形（显示器内局部坐标） */
+export interface PhysRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface SelectorFrame {
   session: number;
   monitor: number;
+  /** 冻结画面的物理像素尺寸 */
+  width: number;
+  height: number;
+  /** 截图时刻的顶层窗口，最上层在前 */
+  windows: PhysRect[];
+  /** 截图时鼠标在本显示器上的位置（物理像素） */
+  cursor: [number, number] | null;
 }
 
 export interface CssRect {

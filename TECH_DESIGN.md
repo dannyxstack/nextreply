@@ -116,6 +116,13 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 6. 松开鼠标：页面上报选区（CSS 像素）和视口尺寸，Rust 按 `image.width / viewport.width` 换算成物理像素并裁剪。只允许在单个显示器内框选；小于 24×24 物理像素视为误点，直接取消。
 7. 裁剪后立即释放所有整屏帧。
 
+**悬停识别窗口**（类似 Snipaste）：截图的同一时刻按 Z 序枚举顶层窗口（`platform::visible_windows`），记录每个窗口的可见区域，连同鼠标位置一起交给 selector。
+- 过滤：不可见、最小化、被系统隐藏（`DWMWA_CLOAKED`）、鼠标穿透（`WS_EX_TRANSPARENT`）、桌面（`Progman`/`WorkerW`）、本应用自己的窗口、小于 40px 的窗口。
+- 位置用 `DWMWA_EXTENDED_FRAME_BOUNDS`，不用 `GetWindowRect`：后者在 Win10+ 会包含四周看不见的缩放边框。
+- 前端按 Z 序找到鼠标下最上层的窗口并高亮；单击即选中该窗口，拖动照常自定义框选。
+- 只识别到顶层窗口这一层。窗口内部元素（如 Chrome 内容区）需要 UI Automation，暂不做；macOS 版用 `CGWindowListCopyWindowInfo`（不需要辅助功能权限）。
+- 整窗截图会带上侧边栏和联系人列表，Prompt 中要求模型只关注当前打开的对话。
+
 ### 4.3 图片预处理
 - 裁剪 → 长边缩到不超过 1568px（Lanczos3）→ JPEG 质量 90 → base64，全部在内存中完成。
 - 请求结束后丢弃（Rust 的 `Vec<u8>` 离开作用域即释放；P1 加 `zeroize`）。

@@ -18,6 +18,11 @@ mod fallback {
     pub fn is_escape_down() -> bool {
         false
     }
+
+    /// TODO(macOS)：用 CGWindowListCopyWindowInfo 获取窗口位置（不需要辅助功能权限）。
+    pub fn visible_windows() -> Vec<crate::geom::Rect> {
+        Vec::new()
+    }
 }
 #[cfg(not(windows))]
 pub use fallback::*;

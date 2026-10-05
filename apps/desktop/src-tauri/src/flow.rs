@@ -23,9 +23,10 @@ use crate::{
     capture::{
         self,
         crop::{self, CssRect},
+        frames::FrameStore,
         ScreenCapturer, XcapCapturer,
     },
-    geom::Rect,
+    geom::{self, Rect},
     hotkey, overlay, platform, selector,
     state::AppState,
 };
@@ -82,10 +83,34 @@ pub enum OverlayPayload {
     Copied { session: u64 },
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
+/// 发给某个 selector 窗口的帧信息。坐标都是该显示器内的局部物理像素，
+/// 前端按 `视口宽 / width` 换算成 CSS 像素。
+#[derive(Clone, Debug, Serialize)]
 pub struct SelectorFrame {
     pub session: u64,
     pub monitor: usize,
+    pub width: u32,
+    pub height: u32,
+    /// 可识别的窗口，最上层在前
+    pub windows: Vec<Rect>,
+    /// 截图时鼠标在本显示器上的位置（用于一出现就高亮鼠标下的窗口）
+    pub cursor: Option<(i32, i32)>,
+}
+
+/// 裁剪后小于这个尺寸的窗口片段不参与识别
+const MIN_WINDOW_ON_MONITOR: i32 = 40;
+
+fn build_selector_frame(store: &FrameStore, monitor: usize) -> Option<SelectorFrame> {
+    let frame = store.frames.get(monitor)?;
+    let b = frame.bounds;
+    Some(SelectorFrame {
+        session: store.session,
+        monitor,
+        width: frame.image.width(),
+        height: frame.image.height(),
+        windows: geom::windows_on_monitor(&store.windows, b, MIN_WINDOW_ON_MONITOR),
+        cursor: store.cursor.filter(|&(x, y)| b.contains_point(x, y)).map(|(x, y)| (x - b.x, y - b.y)),
+    })
 }
 
 #[derive(Default)]
@@ -129,7 +154,10 @@ pub fn start(app: &AppHandle) {
             return;
         }
     };
-    log::debug!("capture done in {:?}", started.elapsed());
+    // 和截图同一时刻记录窗口位置和鼠标位置：冻结后屏幕上只是一张图片，之后再查询就不准了
+    let windows = platform::visible_windows();
+    let cursor = app.cursor_position().ok().map(|p| (p.x as i32, p.y as i32));
+    log::debug!("capture done in {:?}, {} windows", started.elapsed(), windows.len());
     // 立即在后台准备显示用的编码，和窗口定位并行，selector 请求时直接取缓存
     for f in &frames {
         let (image, display) = (f.image.clone(), f.display.clone());
@@ -138,24 +166,26 @@ pub fn start(app: &AppHandle) {
         });
     }
     let bounds: Vec<Rect> = frames.iter().map(|f| f.bounds).collect();
-    {
+    let selector_frames: Vec<Option<SelectorFrame>> = {
         let mut store = state.frames.lock().unwrap();
-        store.session = session;
-        store.frames = frames;
-    }
+        *store = FrameStore { session, frames, windows, cursor };
+        (0..bounds.len()).map(|i| build_selector_frame(&store, i)).collect()
+    };
     {
         let mut flow = state.flow.lock().unwrap();
         *flow = Flow { phase: Phase::Selecting, session, prev_foreground, started: Some(started), ..Default::default() };
     }
     hotkey::set_escape(app, true);
 
-    for (i, b) in bounds.iter().enumerate() {
+    for (i, (b, sf)) in bounds.iter().zip(selector_frames).enumerate() {
         match selector::ensure(app, i) {
             Ok(w) => {
                 if let Err(e) = selector::cover(&w, *b) {
                     log::warn!("position selector {i}: {e}");
                 }
-                let _ = app.emit_to(selector::label(i).as_str(), EVT_SELECTOR_FRAME, SelectorFrame { session, monitor: i });
+                if let Some(sf) = sf {
+                    let _ = app.emit_to(selector::label(i).as_str(), EVT_SELECTOR_FRAME, sf);
+                }
             }
             Err(e) => log::error!("create selector {i}: {e}"),
         }
@@ -175,8 +205,10 @@ pub fn current_selector_frame(app: &AppHandle, monitor: usize) -> Option<Selecto
     let state = app.state::<AppState>();
     let flow = state.flow.lock().unwrap();
     let store = state.frames.lock().unwrap();
-    (flow.phase == Phase::Selecting && store.session == flow.session && monitor < store.frames.len())
-        .then_some(SelectorFrame { session: flow.session, monitor })
+    if flow.phase != Phase::Selecting || store.session != flow.session {
+        return None;
+    }
+    build_selector_frame(&store, monitor)
 }
 
 /// 冻结画面加载完成后再显示窗口，避免闪出上一次的旧画面。
@@ -233,6 +265,7 @@ pub fn on_selection(app: &AppHandle, monitor: usize, session: u64, rect: CssRect
         return cancel(app, CloseReason::Escape);
     }
     let global = local.offset(bounds.x, bounds.y);
+    log::debug!("selection on monitor {monitor}: {global:?}");
 
     let (started, overlay_height) = {
         let mut flow = state.flow.lock().unwrap();

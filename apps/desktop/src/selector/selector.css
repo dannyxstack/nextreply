@@ -38,6 +38,16 @@ body,
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35);
 }
 
+/* 悬停识别到的窗口：加粗描边，提示文字放在框内（窗口常贴着屏幕顶部，放在框外会看不见） */
+.selection.window {
+  border: 3px solid #8b8ff8;
+}
+
+.selection.window .size {
+  top: 10px;
+  left: 10px;
+}
+
 .size {
   position: absolute;
   left: 0;

@@ -9,18 +9,24 @@ use tauri::{
 };
 
 use super::MonitorFrame;
-use crate::state::AppState;
+use crate::{geom::Rect, state::AppState};
 
 #[derive(Default)]
 pub struct FrameStore {
     pub session: u64,
     pub frames: Vec<MonitorFrame>,
+    /// 截图同一时刻的顶层窗口矩形（全局物理像素，最上层在前），用于悬停识别窗口
+    pub windows: Vec<Rect>,
+    /// 截图时的鼠标位置（全局物理像素）
+    pub cursor: Option<(i32, i32)>,
 }
 
 impl FrameStore {
     pub fn clear(&mut self) {
         self.frames.clear();
         self.frames.shrink_to_fit();
+        self.windows.clear();
+        self.cursor = None;
     }
 }
 
