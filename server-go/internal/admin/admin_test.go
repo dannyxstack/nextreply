@@ -20,8 +20,19 @@ import (
 
 const token = "admin-token-0123456789-abcdef"
 
-// setup 通过真实接口制造数据：匿名设备调用、积分用完被拒绝、IP 达到上限，再返回后台的 handler。
+type env struct {
+	h   http.Handler
+	db  *sql.DB
+	api string
+}
+
 func setup(t *testing.T) (http.Handler, *sql.DB) {
+	e := setupEnv(t)
+	return e.h, e.db
+}
+
+// setupEnv 通过真实接口制造数据：匿名设备调用、积分用完被拒绝、IP 达到上限，再返回后台的 handler。
+func setupEnv(t *testing.T) env {
 	t.Helper()
 	db, err := store.Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -64,11 +75,11 @@ func setup(t *testing.T) (http.Handler, *sql.DB) {
 		post("/v1/reply", dev, img)
 	}
 
-	adm, err := New(cfg, db, srv.IPLimits())
+	adm, err := New(cfg, db, srv.Credits(), srv.IPLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
-	return adm.Handler(), db
+	return env{h: adm.Handler(), db: db, api: api.URL}
 }
 
 func get(t *testing.T, h http.Handler, path string, auth bool) (int, string) {

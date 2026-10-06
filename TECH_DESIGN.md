@@ -286,8 +286,19 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 - 被拒绝和出错的请求也记一条：`status` 为 `rejected:<原因>`（`insufficient_credits`、`daily_cap`、`rate_limited`、`ip_quota`）或 `error:<错误码>`，`credits = 0`。
 - 成本按 `internal/ai/pricing.go` 的价目表估算（输入、输出、缓存写入、缓存读取分别计价），实际账单以 Anthropic Console 为准。
 
+**管理操作（阶段 2）**
+
+| 操作 | 效果 |
+|---|---|
+| 补发积分 | 用户或匿名设备；记入 bonus 桶，可设有效天数（0 为不过期）；必须填原因 |
+| 停用 / 恢复账号 | `users.status`；停用立即生效（每次请求都查账号状态）并作废全部 refresh token；积分保留 |
+| 强制下线 | 作废用户全部设备或单台设备的 refresh token；已签发的 access token 最多 15 分钟后失效 |
+| 解绑设备 | 设备回到匿名状态并下线；注册赠送的领取标记保留，不会因此重复领取 |
+
+- 全部为 POST + CSRF 令牌（每次启动随机生成）+ 同源校验（`Origin` / `Sec-Fetch-Site`），POST 后重定向回原页面显示结果。
+- 每次成功的操作写入 `admin_audit`（时间、操作、对象、参数与原因、操作者、来源 IP）；经过 Cloudflare Access 时操作者为其认证的邮箱。后台不提供删除审计记录的功能。
+
 **后续阶段**
-- 阶段 2：管理操作（补发积分、停用 / 恢复账号、强制下线、解绑设备）+ CSRF 保护 + `admin_audit` 操作审计。
 - 阶段 3：运行时配置（各套餐模型、每日上限、IP 限额、暂停体验额度、每日成本上限），存 `settings` 表，环境变量作为默认值。
 
 ---

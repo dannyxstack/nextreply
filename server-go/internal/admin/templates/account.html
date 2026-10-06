@@ -11,9 +11,51 @@
   {{end}}
 </div>
 
+<h2>操作</h2>
+<div class="actions">
+  <form method="post" action="/accounts/{{.Kind}}/{{.ID}}/grant">
+    <h3>补发积分</h3>
+    <p>记入 bonus 桶，优先于不过期的积分扣除。</p>
+    <div class="row">
+      <span><label>数量</label><input type="number" name="amount" min="1" max="10000" value="10" required></span>
+      <span><label>有效天数（0 = 不过期）</label><input type="number" name="days" min="0" max="3650" value="90" required></span>
+    </div>
+    <label>原因（必填，写入审计）</label><input type="text" name="reason" maxlength="200" required placeholder="例如：客服补偿 / 测试">
+    <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="{{$.Path}}">
+    <button type="submit">补发</button>
+  </form>
+  {{if eq .Kind "u"}}
+  {{if eq .Status "active"}}
+  <form method="post" action="/accounts/u/{{.ID}}/suspend">
+    <h3>停用账号</h3>
+    <p>立即生效：所有设备下线，无法再登录或调用。积分保留，恢复后可继续使用。</p>
+    <label>原因（必填）</label><input type="text" name="reason" maxlength="200" required>
+    <label><input type="checkbox" required> 确认停用这个账号</label>
+    <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="{{$.Path}}">
+    <button type="submit" class="danger">停用</button>
+  </form>
+  {{else}}
+  <form method="post" action="/accounts/u/{{.ID}}/restore">
+    <h3>恢复账号</h3>
+    <p>账号当前为 <b class="bad">{{.Status}}</b>，恢复后用户需要重新登录。</p>
+    <label>原因（可选）</label><input type="text" name="reason" maxlength="200">
+    <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="{{$.Path}}">
+    <button type="submit">恢复</button>
+  </form>
+  {{end}}
+  <form method="post" action="/accounts/u/{{.ID}}/revoke-sessions">
+    <h3>强制下线</h3>
+    <p>作废所有设备的登录会话，用户需要重新登录（已签发的访问令牌最多 15 分钟后失效）。</p>
+    <label><input type="checkbox" required> 确认让所有设备下线</label>
+    <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="{{$.Path}}">
+    <button type="submit" class="danger">全部下线</button>
+  </form>
+  {{end}}
+</div>
+
 <h2>设备</h2>
 <div class="scroll"><table>
-<tr><th>设备 ID</th><th>绑定用户</th><th>首次 IP</th><th>硬件哈希</th><th>注册</th><th>最近活跃</th><th>体验额度</th><th>注册赠送</th><th class="n">有效登录会话</th></tr>
+<tr><th>设备 ID</th><th>绑定用户</th><th>首次 IP</th><th>硬件哈希</th><th>注册</th><th>最近活跃</th><th>体验额度</th><th>注册赠送</th><th class="n">有效登录会话</th><th>操作</th></tr>
 {{range .Devices}}<tr>
   <td><a href="/accounts/d/{{.ID}}"><code>{{.ID}}</code></a></td>
   <td>{{if .UserID}}<a href="/accounts/u/{{.UserID}}">{{short .UserID}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
@@ -22,7 +64,11 @@
   <td>{{if .TrialGranted}}已发放{{else}}<span class="muted">未发放</span>{{end}}</td>
   <td>{{if .BonusClaimed}}已领取{{else}}<span class="muted">—</span>{{end}}</td>
   <td class="n">{{.ActiveSessions}}</td>
-</tr>{{else}}<tr><td colspan="9" class="empty">没有设备</td></tr>{{end}}
+  <td>
+    {{if .ActiveSessions}}<form method="post" action="/devices/{{.ID}}/revoke-sessions"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="{{$.Path}}"><button class="small" type="submit">下线</button></form>{{end}}
+    {{if .UserID}}<form method="post" action="/devices/{{.ID}}/unbind"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="{{$.Path}}"><button class="small danger" type="submit">解绑</button></form>{{end}}
+  </td>
+</tr>{{else}}<tr><td colspan="10" class="empty">没有设备</td></tr>{{end}}
 </table></div>
 
 <div class="grid2">
@@ -56,5 +102,12 @@
 </tr>{{else}}<tr><td colspan="12" class="empty">没有调用记录</td></tr>{{end}}
 </table></div>
 <p class="muted">只记录元数据，没有截图、聊天内容或回复内容；IP 保留 30 天。</p>
+
+<h2>操作记录</h2>
+<div class="scroll"><table>
+<tr><th>时间</th><th>操作</th><th>详情</th><th>操作者</th></tr>
+{{range .Audit}}<tr><td>{{time .CreatedAt}}</td><td>{{action .Action}}</td><td><code>{{.Detail}}</code></td><td>{{.Actor}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">没有</td></tr>{{end}}
+</table></div>
 {{end}}
 {{end}}

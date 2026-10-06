@@ -128,7 +128,7 @@ func serve() error {
 		// 管理后台：独立的监听地址，只对本机开放（见 TECH_DESIGN §5.8）
 		var adminSrv *http.Server
 		if cfg.AdminToken != "" {
-			adm, err := admin.New(cfg, db, srv.IPLimits())
+			adm, err := admin.New(cfg, db, srv.Credits(), srv.IPLimits())
 			if err != nil {
 				return err
 			}

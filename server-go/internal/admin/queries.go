@@ -414,6 +414,7 @@ type AccountDetail struct {
 	Grants                  []GrantRow
 	Ledger                  []LedgerRow
 	Events                  []EventRow
+	Audit                   []AuditRow
 }
 
 func (a *Admin) accountDetail(ctx context.Context, kind, id string) (*AccountDetail, error) {
@@ -528,7 +529,11 @@ func (a *Admin) accountDetail(ctx context.Context, kind, id string) (*AccountDet
 		}
 		d.Events = append(d.Events, e)
 	}
-	return d, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	d.Audit, err = a.auditRows(ctx, kind+":"+id, 20)
+	return d, err
 }
 
 // ---------- 限额与风控 ----------

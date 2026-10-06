@@ -1,12 +1,14 @@
 // Package admin 管理后台（TECH_DESIGN §5.8）：单独的监听地址，只对本机开放，HTTP Basic 校验 ADMIN_TOKEN。
-// 阶段 1 只有只读页面。
+// 阶段 1 只读页面；阶段 2 管理操作（actions.go），带 CSRF 校验和操作审计。
 package admin
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html/template"
@@ -18,37 +20,48 @@ import (
 	"time"
 
 	"github.com/nextreply/server/internal/config"
+	"github.com/nextreply/server/internal/credits"
 )
 
 //go:embed templates/*.html
 var templateFS embed.FS
 
 type Admin struct {
-	db       *sql.DB
-	cfg      *config.Config
+	db      *sql.DB
+	cfg     *config.Config
+	credits *credits.Service
+	// 每次启动随机生成的 CSRF 令牌（见 checkCSRF）；重启后旧页面上的表单需要刷新
+	csrf     string
 	ipLimits map[string]int
 	loc      *time.Location
 	now      func() time.Time
 	pages    map[string]*template.Template
 }
 
-func New(cfg *config.Config, db *sql.DB, ipLimits map[string]int) (*Admin, error) {
+func New(cfg *config.Config, db *sql.DB, svc *credits.Service, ipLimits map[string]int) (*Admin, error) {
 	loc, err := time.LoadLocation(cfg.AdminTZ)
 	if err != nil {
 		return nil, fmt.Errorf("ADMIN_TZ: %w", err)
 	}
-	a := &Admin{db: db, cfg: cfg, ipLimits: ipLimits, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return nil, err
+	}
+	a := &Admin{db: db, cfg: cfg, credits: svc, csrf: hex.EncodeToString(buf), ipLimits: ipLimits, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
 	funcs := template.FuncMap{
-		"time":   a.fmtTime,
-		"usd":    fmtUSD,
-		"pct":    fmtPct,
-		"short":  short,
-		"num":    fmtNum,
-		"query":  withQuery,
-		"plan":   planLabel,
-		"status": statusClass,
-		"int64":  func(v int) int64 { return int64(v) },
-		"itoa":   strconv.Itoa,
+		"time":      a.fmtTime,
+		"usd":       fmtUSD,
+		"pct":       fmtPct,
+		"short":     short,
+		"num":       fmtNum,
+		"query":     withQuery,
+		"plan":      planLabel,
+		"status":    statusClass,
+		"int64":     func(v int) int64 { return int64(v) },
+		"csrf":      func() string { return a.csrf },
+		"action":    actionLabel,
+		"hasPrefix": strings.HasPrefix,
+		"itoa":      strconv.Itoa,
 		"div": func(a int64, b int) int64 {
 			if b == 0 {
 				return 0
@@ -56,7 +69,7 @@ func New(cfg *config.Config, db *sql.DB, ipLimits map[string]int) (*Admin, error
 			return a / int64(b)
 		},
 	}
-	for _, name := range []string{"overview", "accounts", "account", "limits"} {
+	for _, name := range []string{"overview", "accounts", "account", "limits", "audit"} {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
@@ -74,6 +87,18 @@ func (a *Admin) Handler() http.Handler {
 		return a.accountDetail(r.Context(), r.PathValue("kind"), r.PathValue("id"))
 	}))
 	mux.HandleFunc("GET /limits", a.page("limits", func(r *http.Request) (any, error) { return a.limits(r.Context()) }))
+	mux.HandleFunc("GET /audit", a.page("audit", func(r *http.Request) (any, error) {
+		target := r.URL.Query().Get("target")
+		rows, err := a.auditRows(r.Context(), target, 200)
+		return AuditPage{Target: target, Rows: rows}, err
+	}))
+
+	mux.HandleFunc("POST /accounts/{kind}/{id}/grant", a.action("grant_credits", a.grantCredits))
+	mux.HandleFunc("POST /accounts/u/{id}/suspend", a.action("suspend_user", a.setUserStatus("suspended")))
+	mux.HandleFunc("POST /accounts/u/{id}/restore", a.action("restore_user", a.setUserStatus("active")))
+	mux.HandleFunc("POST /accounts/u/{id}/revoke-sessions", a.action("revoke_sessions", a.revokeUserSessions))
+	mux.HandleFunc("POST /devices/{id}/revoke-sessions", a.action("revoke_sessions", a.revokeDeviceSessions))
+	mux.HandleFunc("POST /devices/{id}/unbind", a.action("unbind_device", a.unbindDevice))
 	return a.auth(mux)
 }
 
@@ -84,7 +109,8 @@ func (a *Admin) auth(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("Cache-Control", "no-store")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "no-referrer")
+		// 不能用 no-referrer：那样浏览器提交表单时会发送 Origin: null，同源校验会拒绝正常的操作
+		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'")
 		user, pass, ok := r.BasicAuth()
@@ -105,10 +131,13 @@ type pageData struct {
 	TZ    string
 	Data  any
 	Query url.Values
+	// 操作结果提示（POST 重定向回来时带在 ?msg= 上）
+	Msg  string
+	Path string
 }
 
 func (a *Admin) page(name string, load func(*http.Request) (any, error)) http.HandlerFunc {
-	titles := map[string]string{"overview": "概览", "accounts": "账户", "account": "账户详情", "limits": "限额与风控"}
+	titles := map[string]string{"overview": "概览", "accounts": "账户", "account": "账户详情", "limits": "限额与风控", "audit": "操作审计"}
 	nav := map[string]string{"account": "accounts"}
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, err := load(r)
@@ -125,7 +154,8 @@ func (a *Admin) page(name string, load func(*http.Request) (any, error)) http.Ha
 		if n == "" {
 			n = name
 		}
-		pd := pageData{Title: titles[name], Nav: n, Now: a.fmtTime(a.now().UnixMilli()), TZ: a.loc.String(), Data: data, Query: r.URL.Query()}
+		pd := pageData{Title: titles[name], Nav: n, Now: a.fmtTime(a.now().UnixMilli()), TZ: a.loc.String(), Data: data,
+			Query: r.URL.Query(), Msg: r.URL.Query().Get("msg"), Path: r.URL.Path}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if err := a.pages[name].Execute(w, pd); err != nil {
 			slog.Error("admin render failed", "page", name, "err", err.Error())
@@ -230,6 +260,17 @@ func planLabel(p any) string {
 		return l
 	}
 	return s
+}
+
+func actionLabel(action string) string {
+	labels := map[string]string{
+		"grant_credits": "补发积分", "suspend_user": "停用账号", "restore_user": "恢复账号",
+		"revoke_sessions": "强制下线", "unbind_device": "解绑设备",
+	}
+	if l, ok := labels[action]; ok {
+		return l
+	}
+	return action
 }
 
 func statusClass(status string) string {

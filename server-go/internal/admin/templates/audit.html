@@ -1,0 +1,15 @@
+{{define "content"}}
+{{with .Data}}
+<h1>操作审计</h1>
+{{if .Target}}<p>只看 <code>{{.Target}}</code> · <a href="/audit">查看全部</a></p>{{end}}
+<div class="scroll"><table>
+<tr><th>时间</th><th>操作</th><th>对象</th><th>详情</th><th>操作者</th><th>来源 IP</th></tr>
+{{range .Rows}}<tr>
+  <td>{{time .CreatedAt}}</td><td>{{action .Action}}</td>
+  <td>{{$k := slice .Target 0 1}}<a href="/accounts/{{$k}}/{{slice .Target 2}}">{{if eq $k "u"}}用户{{else}}设备{{end}} {{short (slice .Target 2)}}</a> · <a href="/audit?target={{.Target}}">筛选</a></td>
+  <td><code>{{.Detail}}</code></td><td>{{.Actor}}</td><td>{{.IP}}</td>
+</tr>{{else}}<tr><td colspan="6" class="empty">还没有操作记录</td></tr>{{end}}
+</table></div>
+<p class="muted">每一次修改数据的操作都会记录在这里，后台不能删除。最近 200 条。</p>
+{{end}}
+{{end}}
