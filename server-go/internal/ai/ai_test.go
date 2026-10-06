@@ -71,3 +71,21 @@ func TestParamsShape(t *testing.T) {
 		t.Fatal(string(b))
 	}
 }
+
+func TestCostMicros(t *testing.T) {
+	// 用户日志里的第 2 次调用：1714 输入 + 326 输出 + 1788 缓存读取（Opus 5.5）
+	got := CostMicros("claude-opus-5-5", Usage{Input: 1714, Output: 326, CacheRead: 1788})
+	if got != 13734 { // 6856 + 6520 + 357.6 ≈ $0.0137
+		t.Fatal(got)
+	}
+	if CostMicros("claude-haiku-4-5-20251001", Usage{Input: 1000}) != 1000 {
+		t.Fatal("dated model id should match by prefix")
+	}
+	// claude-opus-5-5 不能被更短的 claude-opus-5 抢先匹配
+	if CostMicros("claude-opus-5-5", Usage{Output: 1}) != 20 {
+		t.Fatal("longest prefix should win")
+	}
+	if CostMicros("mock", Usage{Input: 1000}) != 0 {
+		t.Fatal("unknown model should cost 0")
+	}
+}

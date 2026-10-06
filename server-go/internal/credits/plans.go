@@ -52,6 +52,21 @@ const (
 	MaxDevicesPerUser = 5
 )
 
+// 订阅到期后的宽限期：续费扣款失败（past_due）时给用户几天时间处理
+const SubscriptionGraceMs = 3 * 24 * 60 * 60 * 1000
+
+// ResolvePlan 根据订阅记录判断已登录用户当前的套餐；没有订阅（plan 为空）时是免费套餐。
+// periodEnd 为 0 表示未知（不按到期时间判断）。接口和管理后台共用这条规则。
+func ResolvePlan(plan, status string, periodEndMs, nowMs int64) PlanID {
+	if !IsPaidPlan(plan) || (status != "active" && status != "past_due") {
+		return PlanFree
+	}
+	if periodEndMs != 0 && periodEndMs+SubscriptionGraceMs < nowMs {
+		return PlanFree
+	}
+	return PlanID(plan)
+}
+
 // Owner 积分账户的归属：登录用户按账号，未登录按设备
 func UserOwner(userID string) string     { return "u:" + userID }
 func DeviceOwner(deviceID string) string { return "d:" + deviceID }

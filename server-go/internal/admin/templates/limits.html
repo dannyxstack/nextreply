@@ -1,0 +1,66 @@
+{{define "content"}}
+{{with .Data}}
+<h1>限额与风控</h1>
+<p class="muted">每日限额按 UTC 日计算，当前为 {{.Day}}。</p>
+
+<div class="grid2">
+<div>
+<h2>今天的 IP 计数</h2>
+<div class="scroll"><table>
+<tr><th>类型</th><th>IP</th><th class="n">次数</th><th class="n">上限</th><th></th></tr>
+{{range .IPCounters}}<tr>
+  <td>{{if eq .Kind "ip"}}回复{{else if eq .Kind "reg"}}注册设备{{else if eq .Kind "trial"}}发放体验额度{{else if eq .Kind "otp"}}验证码{{else}}{{.Kind}}{{end}}</td>
+  <td><a href="/accounts?q={{.IP}}">{{.IP}}</a></td><td class="n">{{.Count}}</td><td class="n">{{.Limit}}</td>
+  <td>{{if .Exceeded}}<span class="bad">已达上限</span>{{end}}</td>
+</tr>{{else}}<tr><td colspan="5" class="empty">今天还没有计数</td></tr>{{end}}
+</table></div>
+</div>
+<div>
+<h2>今天接近或达到每日上限的账户</h2>
+<div class="scroll"><table>
+<tr><th>账户</th><th>套餐</th><th class="n">已用</th><th class="n">上限</th><th></th></tr>
+{{range .DailyCaps}}<tr>
+  <td><a href="/accounts/{{.Kind}}/{{.ID}}">{{if eq .Kind "u"}}用户 {{short .ID}}{{else}}设备 {{short .ID}}{{end}}</a></td>
+  <td>{{plan .Plan}}</td><td class="n">{{.Used}}</td><td class="n">{{.Cap}}</td>
+  <td>{{if .Exceeded}}<span class="bad">已达上限</span>{{else}}<span class="warn">≥ 80%</span>{{end}}</td>
+</tr>{{else}}<tr><td colspan="5" class="empty">没有</td></tr>{{end}}
+</table></div>
+</div>
+</div>
+
+<h2>近 24 小时被拒绝的请求</h2>
+<div class="scroll"><table>
+<tr><th>原因</th><th>账户</th><th>IP</th><th class="n">次数</th><th>最近一次</th></tr>
+{{range .Rejections}}<tr>
+  <td class="warn">{{if eq .Reason "insufficient_credits"}}积分不足{{else if eq .Reason "daily_cap"}}达到每日上限{{else if eq .Reason "rate_limited"}}请求太频繁{{else if eq .Reason "ip_quota"}}IP 达到每日上限{{else}}{{.Reason}}{{end}}</td>
+  <td>{{$k := slice .Owner 0 1}}<a href="/accounts/{{$k}}/{{slice .Owner 2}}">{{if eq $k "u"}}用户{{else}}设备{{end}} {{short (slice .Owner 2)}}</a></td>
+  <td>{{.IP}}</td><td class="n">{{.Count}}</td><td>{{time .Last}}</td>
+</tr>{{else}}<tr><td colspan="5" class="empty">没有</td></tr>{{end}}
+</table></div>
+
+<div class="grid2">
+<div>
+<h2>近 24 小时的错误</h2>
+<div class="scroll"><table>
+<tr><th>错误码</th><th class="n">次数</th></tr>
+{{range .Errors}}<tr><td class="bad">{{.Name}}</td><td class="n">{{.Count}}</td></tr>
+{{else}}<tr><td colspan="2" class="empty">没有</td></tr>{{end}}
+</table></div>
+</div>
+<div>
+<h2>同一 IP 注册了 3 台以上设备</h2>
+<div class="scroll"><table>
+<tr><th>首次 IP</th><th class="n">设备数</th><th>最早</th><th>最近</th></tr>
+{{range .IPDevices}}<tr><td><a href="/accounts?kind=device&q={{.Key}}">{{.Key}}</a></td><td class="n">{{.Count}}</td><td>{{time .First}}</td><td>{{time .Last}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">没有</td></tr>{{end}}
+</table></div>
+<h2>同一硬件对应多台设备（重装 / 换 ID）</h2>
+<div class="scroll"><table>
+<tr><th>硬件哈希</th><th class="n">设备数</th><th>最早</th><th>最近</th></tr>
+{{range .HWDevices}}<tr><td><code>{{short .Key}}</code></td><td class="n">{{.Count}}</td><td>{{time .First}}</td><td>{{time .Last}}</td></tr>
+{{else}}<tr><td colspan="4" class="empty">没有</td></tr>{{end}}
+</table></div>
+</div>
+</div>
+{{end}}
+{{end}}

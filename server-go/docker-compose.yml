@@ -17,6 +17,8 @@ services:
     env_file: .env
     environment:
       LISTEN_ADDR: ":8787"
+      # 管理后台（.env 中设置 ADMIN_TOKEN 才启动）；下面只映射到宿主机 127.0.0.1
+      ADMIN_ADDR: ":8788"
       DATABASE_PATH: /data/nextreply.db
       # 缺少时服务会启动即退出；在这里提前检查，让 docker compose up 直接报出原因
       TOKEN_SECRET: ${TOKEN_SECRET:?请在 .env 中设置 TOKEN_SECRET，可用 openssl rand -base64 48 生成}
@@ -27,6 +29,8 @@ services:
     # 测试机需要局域网访问时在 .env 中设置 BIND_ADDR=0.0.0.0
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${PORT:-8787}:8787"
+      # 管理后台永远只对宿主机本机开放，通过 SSH 隧道或 Cloudflare Tunnel + Access 访问
+      - "127.0.0.1:${ADMIN_PORT:-8788}:8788"
     logging:
       driver: json-file
       options:

@@ -8,6 +8,7 @@
 | 端口 | 归属 | 说明 |
 |---|---|---|
 | **8787** | 本服务 | 默认监听 `127.0.0.1:8787`，桌面端设置页的"服务端地址"填它（或隧道地址） |
+| **8788** | 管理后台 | 设置 `ADMIN_TOKEN` 后启动，只监听本机；从 Windows 访问用 `ssh -N -L 8789:127.0.0.1:8788 …` 后打开 `http://127.0.0.1:8789` |
 | 1420 | 桌面端开发时的 vite | 与服务端无关 |
 | 随机 | 桌面端登录回调 | 浏览器登录后跳回 Windows 本机，与服务器无关 |
 
@@ -16,7 +17,8 @@
 ```bash
 # 开发模式：验证码显示在登录页、提供模拟支付；MOCK_AI 不调用模型、不花钱
 DEV_MODE=true MOCK_AI=true TOKEN_SECRET=dev-secret PUBLIC_URL=http://127.0.0.1:8787 \
-  go run ./cmd/nextreply-server
+  ADMIN_TOKEN=local-admin-token-0123456789 go run ./cmd/nextreply-server
+# 管理后台：http://127.0.0.1:8788（用户名 admin，密码为 ADMIN_TOKEN）
 
 # 真实调用模型：去掉 MOCK_AI，加上 ANTHROPIC_API_KEY
 ```
@@ -60,7 +62,8 @@ ssh -N -L 8788:127.0.0.1:8787 <用户>@<服务器>
 | `internal/app/account.go` · `identity.go` | 设备注册、邮箱验证码登录（PKCE）、令牌、`/v1/me`、调用方识别 |
 | `internal/app/billing.go` · `stripe.go` | 结账链接、Stripe webhook、开发模式模拟支付 |
 | `internal/app/pages.go` | 服务端渲染的登录页、结果页 |
-| `internal/ai/` | Prompt、结构化输出 schema（协议）、Claude 调用 |
+| `internal/ai/` | Prompt、结构化输出 schema（协议）、Claude 调用、成本估算价目表（`pricing.go`） |
+| `internal/admin/` | 管理后台：查询（`queries.go`）、页面模板（`templates/`）；监听 `ADMIN_ADDR`，Basic 认证 |
 | `internal/credits/` | 套餐数值（`plans.go`）、扣费纯函数（`allocate.go`）、积分账户（`service.go`） |
 | `internal/store/` | SQLite、迁移（`migrations/`）、备份、清理 |
 | `internal/config/` | 环境变量，包括每个套餐使用的模型 |

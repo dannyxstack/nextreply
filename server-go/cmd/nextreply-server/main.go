@@ -20,6 +20,9 @@ import (
 	"syscall"
 	"time"
 
+	_ "time/tzdata" // 镜像里没有系统时区数据，后台按 ADMIN_TZ 显示时间需要内置
+
+	"github.com/nextreply/server/internal/admin"
 	"github.com/nextreply/server/internal/ai"
 	"github.com/nextreply/server/internal/app"
 	"github.com/nextreply/server/internal/config"
@@ -121,6 +124,23 @@ func serve() error {
 				"model_pro", cfg.ModelFor("pro").Model, "model_pro_plus", cfg.ModelFor("pro_plus").Model)
 			errCh <- httpSrv.ListenAndServe()
 		}()
+
+		// 管理后台：独立的监听地址，只对本机开放（见 TECH_DESIGN §5.8）
+		var adminSrv *http.Server
+		if cfg.AdminToken != "" {
+			adm, err := admin.New(cfg, db, srv.IPLimits())
+			if err != nil {
+				return err
+			}
+			adminSrv = &http.Server{Addr: cfg.AdminAddr, Handler: adm.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 60 * time.Second}
+			go func() {
+				slog.Info("admin listening", "addr", cfg.AdminAddr)
+				errCh <- adminSrv.ListenAndServe()
+			}()
+		} else {
+			slog.Info("admin disabled (ADMIN_TOKEN not set)")
+		}
+
 		select {
 		case err := <-errCh:
 			return err
@@ -129,6 +149,9 @@ func serve() error {
 		slog.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+		if adminSrv != nil {
+			_ = adminSrv.Shutdown(shutdownCtx)
+		}
 		return httpSrv.Shutdown(shutdownCtx)
 	})
 }

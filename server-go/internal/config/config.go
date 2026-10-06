@@ -38,6 +38,11 @@ type Config struct {
 	// 只有在代理会覆盖该请求头时才能设置，否则客户端可以伪造 IP 绕过按 IP 的限额。
 	ClientIPHeader string
 
+	// 管理后台：设置 AdminToken 才启动，监听 AdminAddr（只应对本机开放），页面时间按 AdminTZ 显示
+	AdminToken string
+	AdminAddr  string
+	AdminTZ    string
+
 	ResendAPIKey     string
 	EmailFrom        string
 	TurnstileSiteKey string
@@ -65,6 +70,9 @@ func FromEnv() (*Config, error) {
 		PublicURL:           strings.TrimRight(env("PUBLIC_URL", "http://127.0.0.1:8787"), "/"),
 		DevMode:             os.Getenv("DEV_MODE") == "true",
 		ClientIPHeader:      os.Getenv("CLIENT_IP_HEADER"),
+		AdminToken:          os.Getenv("ADMIN_TOKEN"),
+		AdminAddr:           env("ADMIN_ADDR", "127.0.0.1:8788"),
+		AdminTZ:             env("ADMIN_TZ", "Asia/Shanghai"),
 		ResendAPIKey:        os.Getenv("RESEND_API_KEY"),
 		EmailFrom:           env("EMAIL_FROM", "NextReply <noreply@example.com>"),
 		TurnstileSiteKey:    os.Getenv("TURNSTILE_SITE_KEY"),
@@ -108,6 +116,9 @@ func (c *Config) validate() error {
 	// 线上的令牌密钥太短等于没有签名
 	if !c.DevMode && len(c.TokenSecret) < 32 {
 		return errors.New("TOKEN_SECRET must be at least 32 characters when DEV_MODE is off")
+	}
+	if c.AdminToken != "" && len(c.AdminToken) < 24 {
+		return errors.New("ADMIN_TOKEN must be at least 24 characters")
 	}
 	if !c.DevMode && c.ResendAPIKey == "" {
 		return errors.New("RESEND_API_KEY is required when DEV_MODE is off (login codes cannot be delivered)")

@@ -570,3 +570,34 @@ func TestModelPerPlan(t *testing.T) {
 		t.Fatal("free used", h.ai.lastModel)
 	}
 }
+
+func TestUsageEventsRecorded(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) { c.IPDailyQuota = 2 })
+	token := h.register(deviceID)
+	h.do("POST", "/v1/reply", token, replyBody)        // ok
+	h.ai.err = apierr.New(apierr.Timeout, "timed out") //
+	h.do("POST", "/v1/reply", token, replyBody)        // error:timeout
+	h.ai.err = nil                                     //
+	h.do("POST", "/v1/reply", token, replyBody)        // ok（第 2 次成功）
+	h.do("POST", "/v1/reply", token, replyBody)        // 达到 IP 上限 → rejected:ip_quota
+
+	rows, err := h.db.Query(`SELECT status, credits, COALESCE(error_code, ''), device_id, ip FROM usage_events ORDER BY created_at, rowid`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var status, code, dev, ip string
+		var cr int
+		rows.Scan(&status, &cr, &code, &dev, &ip)
+		if dev != deviceID || ip != "127.0.0.1" {
+			t.Fatal("device/ip not recorded", dev, ip)
+		}
+		got = append(got, fmt.Sprintf("%s/%d/%s", status, cr, code))
+	}
+	want := []string{"ok/1/", "error:timeout/0/timeout", "ok/1/", "rejected:ip_quota/0/ip_quota"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatal(got)
+	}
+}

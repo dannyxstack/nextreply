@@ -1,0 +1,60 @@
+{{define "content"}}
+{{with .Data}}
+<h1>{{if eq .Kind "u"}}用户 {{.Label}}{{else}}设备 {{.ID}}{{end}}</h1>
+<div class="cards">
+  <div class="card"><div class="k">套餐</div><div class="v">{{plan .Plan}}</div><div class="s">{{if eq .Kind "d"}}匿名体验账户{{else}}状态 <span class="{{if ne .Status "active"}}bad{{end}}">{{.Status}}</span>{{end}}</div></div>
+  <div class="card"><div class="k">可用余额</div><div class="v">{{.Balance}}</div><div class="s">今日已用 {{.UsedToday}}（UTC 日）</div></div>
+  <div class="card"><div class="k">创建时间</div><div class="v" style="font-size:16px">{{time .CreatedAt}}</div><div class="s">{{if eq .Kind "u"}}ID <code>{{.ID}}</code>{{end}}</div></div>
+  {{with .Subscription}}
+  <div class="card"><div class="k">订阅</div><div class="v" style="font-size:16px">{{plan .Plan}} · {{.Status}}</div>
+    <div class="s">{{.Provider}} · 到期 {{time .PeriodEnd}}{{if .CancelAtPeriodEnd}} · 到期后取消{{end}}</div></div>
+  {{end}}
+</div>
+
+<h2>设备</h2>
+<div class="scroll"><table>
+<tr><th>设备 ID</th><th>绑定用户</th><th>首次 IP</th><th>硬件哈希</th><th>注册</th><th>最近活跃</th><th>体验额度</th><th>注册赠送</th><th class="n">有效登录会话</th></tr>
+{{range .Devices}}<tr>
+  <td><a href="/accounts/d/{{.ID}}"><code>{{.ID}}</code></a></td>
+  <td>{{if .UserID}}<a href="/accounts/u/{{.UserID}}">{{short .UserID}}</a>{{else}}<span class="muted">—</span>{{end}}</td>
+  <td>{{.FirstIP}}</td><td><code>{{short .HWHash}}</code></td>
+  <td>{{time .CreatedAt}}</td><td>{{time .LastSeen}}</td>
+  <td>{{if .TrialGranted}}已发放{{else}}<span class="muted">未发放</span>{{end}}</td>
+  <td>{{if .BonusClaimed}}已领取{{else}}<span class="muted">—</span>{{end}}</td>
+  <td class="n">{{.ActiveSessions}}</td>
+</tr>{{else}}<tr><td colspan="9" class="empty">没有设备</td></tr>{{end}}
+</table></div>
+
+<div class="grid2">
+<div>
+<h2>积分桶</h2>
+<div class="scroll"><table>
+<tr><th>桶</th><th class="n">发放</th><th class="n">剩余</th><th>到期</th><th>来源</th><th>发放时间</th></tr>
+{{range .Grants}}<tr class="{{if .Expired}}muted{{end}}"><td>{{.Bucket}}</td><td class="n">{{.Amount}}</td><td class="n">{{.Remaining}}</td>
+<td>{{if .ExpiresAt}}{{time .ExpiresAt}}{{if .Expired}}（已过期）{{end}}{{else}}不过期{{end}}</td><td><code>{{.SourceRef}}</code></td><td>{{time .CreatedAt}}</td></tr>
+{{else}}<tr><td colspan="6" class="empty">没有积分记录</td></tr>{{end}}
+</table></div>
+</div>
+<div>
+<h2>积分流水（最近 50 条）</h2>
+<div class="scroll"><table>
+<tr><th>时间</th><th class="n">变动</th><th>原因</th><th>关联</th></tr>
+{{range .Ledger}}<tr><td>{{time .CreatedAt}}</td><td class="n {{if lt .Delta 0}}warn{{else}}ok{{end}}">{{.Delta}}</td><td>{{.Reason}}</td><td><code>{{short .Ref}}</code></td></tr>
+{{else}}<tr><td colspan="4" class="empty">没有流水</td></tr>{{end}}
+</table></div>
+</div>
+</div>
+
+<h2>最近调用（最近 50 条{{if eq .Kind "d"}}，含这台设备登录后的调用{{end}}）</h2>
+<div class="scroll"><table>
+<tr><th>时间</th><th>状态</th><th>套餐</th><th>模型</th><th class="n">耗时</th><th class="n">输入</th><th class="n">输出</th><th class="n">缓存读</th><th class="n">成本</th><th class="n">扣积分</th><th>设备</th><th>IP</th></tr>
+{{range .Events}}<tr>
+  <td>{{time .CreatedAt}}</td><td class="{{status .Status}}">{{.Status}}</td><td>{{plan .Plan}}</td><td>{{.Model}}</td>
+  <td class="n">{{if .LatencyMs}}{{.LatencyMs}} ms{{end}}</td><td class="n">{{num .TokensIn}}</td><td class="n">{{num .TokensOut}}</td><td class="n">{{num .CacheRead}}</td>
+  <td class="n">{{usd .CostMicros}}</td><td class="n">{{.Credits}}</td>
+  <td>{{if .DeviceID}}<a href="/accounts/d/{{.DeviceID}}">{{short .DeviceID}}</a>{{end}}</td><td>{{.IP}}</td>
+</tr>{{else}}<tr><td colspan="12" class="empty">没有调用记录</td></tr>{{end}}
+</table></div>
+<p class="muted">只记录元数据，没有截图、聊天内容或回复内容；IP 保留 30 天。</p>
+{{end}}
+{{end}}

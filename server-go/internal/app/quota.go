@@ -7,9 +7,21 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/nextreply/server/internal/credits"
 )
 
 const ipCounterTTL = 2 * 24 * time.Hour
+
+// IPLimits 各类按 IP 计数的每日上限，键是 ip_counters.key 的前缀。管理后台用它标出超限的 IP。
+func (s *Server) IPLimits() map[string]int {
+	return map[string]int{
+		"ip":    s.cfg.IPDailyQuota,
+		"reg":   s.cfg.RegisterPerIP,
+		"trial": credits.TrialsPerIPPerDay,
+		"otp":   otpPerIPPerDay,
+	}
+}
 
 func (s *Server) ipKey(kind, ip string) string {
 	return kind + ":" + ip + ":" + s.now().UTC().Format("2006-01-02")

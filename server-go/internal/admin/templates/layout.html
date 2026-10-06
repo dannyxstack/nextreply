@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · NextReply 后台</title>
+<style>
+  :root { --bg:#f6f7fb; --panel:#fff; --border:#e3e5ee; --text:#0f172a; --muted:#64748b; --accent:#4f46e5;
+          --ok:#15803d; --warn:#b45309; --bad:#dc2626; --row:#f8fafc; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14151a; --panel:#1c1e25; --border:#2c2f3a; --text:#e5e7eb; --muted:#9ca3af;
+          --accent:#8b8ff8; --ok:#4ade80; --warn:#fbbf24; --bad:#f87171; --row:#20232b; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+  header { display:flex; align-items:center; gap:24px; padding:12px 24px; background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap; }
+  header b { font-size:15px; }
+  nav a { color:var(--muted); text-decoration:none; margin-right:18px; padding:4px 0; }
+  nav a.on { color:var(--text); border-bottom:2px solid var(--accent); }
+  header .meta { margin-left:auto; color:var(--muted); font-size:12px; }
+  main { padding:20px 24px 48px; max-width:1400px; }
+  h1 { font-size:20px; margin:0 0 16px; }
+  h2 { font-size:15px; margin:28px 0 10px; }
+  a { color:var(--accent); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .card .k { color:var(--muted); font-size:12px; }
+  .card .v { font-size:22px; font-weight:600; font-variant-numeric: tabular-nums; }
+  .card .s { color:var(--muted); font-size:12px; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:0 24px; }
+  .scroll { overflow-x:auto; background:var(--panel); border:1px solid var(--border); border-radius:10px; }
+  table { border-collapse:collapse; width:100%; }
+  th, td { padding:7px 10px; text-align:left; border-bottom:1px solid var(--border); white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; font-size:12px; background:var(--row); }
+  tr:last-child td { border-bottom:0; }
+  td.n, th.n { text-align:right; font-variant-numeric: tabular-nums; }
+  .ok { color:var(--ok); } .warn { color:var(--warn); } .bad { color:var(--bad); font-weight:600; } .muted { color:var(--muted); }
+  .tag { display:inline-block; padding:0 6px; border-radius:4px; font-size:12px; border:1px solid var(--border); }
+  .filters { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin-bottom:12px; }
+  .filters a { text-decoration:none; padding:3px 8px; border-radius:6px; }
+  .filters a.on { background:var(--accent); color:#fff; }
+  input[type=search] { font:inherit; padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--panel); color:var(--text); width:280px; }
+  button { font:inherit; padding:6px 12px; border:0; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; }
+  .pager { margin-top:12px; display:flex; gap:16px; }
+  .empty { color:var(--muted); padding:14px; }
+  dl { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; margin:0; }
+  dt { color:var(--muted); }
+  code { font-size:12px; }
+  @media (max-width: 640px) { main, header { padding-left:16px; padding-right:16px; } .grid2 { grid-template-columns:1fr; } input[type=search] { width:100%; } }
+</style>
+</head>
+<body>
+<header>
+  <b>NextReply 后台</b>
+  <nav>
+    <a href="/" class="{{if eq .Nav "overview"}}on{{end}}">概览</a>
+    <a href="/accounts" class="{{if eq .Nav "accounts"}}on{{end}}">账户</a>
+    <a href="/limits" class="{{if eq .Nav "limits"}}on{{end}}">限额与风控</a>
+  </nav>
+  <span class="meta">{{.Now}}（{{.TZ}}）· 只读</span>
+</header>
+<main>
+{{template "content" .}}
+</main>
+</body>
+</html>

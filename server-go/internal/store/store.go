@@ -133,5 +133,7 @@ func Cleanup(ctx context.Context, db *sql.DB, now time.Time) error {
 			return err
 		}
 	}
-	return nil
+	// 用量记录里的 IP 只用于近期风控排查，30 天后清空
+	_, err := db.ExecContext(ctx, `UPDATE usage_events SET ip = NULL WHERE ip IS NOT NULL AND created_at < ?`, ms-30*day)
+	return err
 }

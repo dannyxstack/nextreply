@@ -258,9 +258,37 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 | 支付 | Stripe Radar；退款 / 拒付收回积分 |
 
 ### 5.7 隐私
-- 不存储截图和聊天内容；日志与 `usage_events` 只有 `request_id、账户、套餐、状态、模型、耗时、token 数`。
+- 不存储截图和聊天内容；日志与 `usage_events` 只有 `request_id、账户、设备、IP、套餐、状态、模型、耗时、token 数、估算成本`。
 - 账号只关联用量元数据；注销时删除个人数据。
 - 隐私政策写明：截图经服务端转发给 AI 服务商，不存储。
+- `usage_events.ip` 只用于风控排查，保留 30 天后清空。
+
+### 5.8 管理后台
+
+运营用的只读 / 管理页面，和服务端是同一个程序（`server-go/internal/admin/`）。
+
+**访问**
+- 单独的监听地址 `ADMIN_ADDR`（容器内 `:8788`，compose 只映射到宿主机 `127.0.0.1`），**不对公网开放**。未设置 `ADMIN_TOKEN` 时不启动。
+- 通过 SSH 隧道或 Cloudflare Tunnel + Cloudflare Access（邮箱登录）访问；后台本身再用 HTTP Basic 校验 `ADMIN_TOKEN`。
+- 服务端渲染 HTML（`html/template`），不引入前端框架。
+
+**页面（阶段 1，只读）**
+
+| 页面 | 内容 |
+|---|---|
+| 概览 `/` | 今天 / 7 天：请求数、成功率、各状态与拒绝原因、P50 / P95 耗时、按模型的 token 与估算成本；新设备、新用户、活跃账户、有效订阅；近 14 天每日趋势；当前各套餐使用的模型 |
+| 账户 `/accounts` | 注册用户和匿名设备（未绑定账号的设备）放在一张表：标识、套餐、余额、今日 / 累计调用、累计成本、最后活跃、首次 IP；按类型筛选、搜索邮箱 / 设备 ID、按活跃 / 用量 / 创建时间排序 |
+| 账户详情 `/accounts/{u\|d}/{id}` | 设备、订阅、积分各桶（含已过期）、流水、最近调用 |
+| 限额与风控 `/limits` | 今天各类 IP 计数（达到上限标红）；达到每日上限的账户；近 24 小时被拒绝的请求；同一 IP 注册多台设备、同一硬件多台设备 |
+
+**数据补充**（迁移 `0002`）
+- `usage_events` 增加 `device_id、ip、tokens_in、tokens_out、cache_read、cache_write、cost_micros（估算成本，百万分之一美元）、error_code`。
+- 被拒绝和出错的请求也记一条：`status` 为 `rejected:<原因>`（`insufficient_credits`、`daily_cap`、`rate_limited`、`ip_quota`）或 `error:<错误码>`，`credits = 0`。
+- 成本按 `internal/ai/pricing.go` 的价目表估算（输入、输出、缓存写入、缓存读取分别计价），实际账单以 Anthropic Console 为准。
+
+**后续阶段**
+- 阶段 2：管理操作（补发积分、停用 / 恢复账号、强制下线、解绑设备）+ CSRF 保护 + `admin_audit` 操作审计。
+- 阶段 3：运行时配置（各套餐模型、每日上限、IP 限额、暂停体验额度、每日成本上限），存 `settings` 表，环境变量作为默认值。
 
 ---
 

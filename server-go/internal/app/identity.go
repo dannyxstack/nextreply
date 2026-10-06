@@ -8,7 +8,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/nextreply/server/internal/apierr"
 	"github.com/nextreply/server/internal/authn"
@@ -22,9 +21,6 @@ type Caller struct {
 	Owner    string
 	Plan     credits.PlanID
 }
-
-// 订阅到期后的宽限期：续费扣款失败（past_due）时给用户几天时间处理
-const subscriptionGrace = 3 * 24 * time.Hour
 
 type Subscription struct {
 	Plan               string
@@ -55,16 +51,10 @@ func getSubscription(ctx context.Context, db *sql.DB, userID string) (*Subscript
 }
 
 func planFromSubscription(sub *Subscription, nowMs int64) credits.PlanID {
-	if sub == nil || !credits.IsPaidPlan(sub.Plan) {
+	if sub == nil {
 		return credits.PlanFree
 	}
-	if sub.Status != "active" && sub.Status != "past_due" {
-		return credits.PlanFree
-	}
-	if sub.CurrentPeriodEnd.Valid && sub.CurrentPeriodEnd.Int64+subscriptionGrace.Milliseconds() < nowMs {
-		return credits.PlanFree
-	}
-	return credits.PlanID(sub.Plan)
+	return credits.ResolvePlan(sub.Plan, sub.Status, sub.CurrentPeriodEnd.Int64, nowMs)
 }
 
 func bearer(r *http.Request) string {

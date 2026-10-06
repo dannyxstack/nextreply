@@ -21,7 +21,7 @@ const (
 	otpTTL         = 10 * time.Minute
 	otpMaxAttempts = 5
 	otpResend      = time.Minute
-	otpPerIPPerDay = 10
+	otpPerIPPerDay = 10 // 管理后台也按这个值判断 IP 是否达到上限（见 IPLimits）
 	authCodeTTL    = 5 * time.Minute
 	refreshTTL     = 30 * 24 * time.Hour
 )

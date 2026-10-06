@@ -14,6 +14,7 @@ server-go/
 ├── cmd/nextreply-server/   入口：serve / migrate / backup / healthcheck
 ├── internal/
 │   ├── app/                HTTP 层：路由、/v1/reply、账号登录、计费、Stripe、页面
+│   ├── admin/              管理后台（只读页面，模板在 templates/）
 │   ├── ai/                 Prompt、结果 Schema（与桌面端协议同步）、Claude 调用
 │   ├── credits/            积分：套餐、分桶分配、预扣/确认/退还
 │   ├── authn/              设备 token、access token（JWT）、PKCE
@@ -114,6 +115,26 @@ curl http://127.0.0.1:8787/v1/health          # {"ok":true,"model":"..."}
 
 处理失败的 webhook 会返回 500，Stripe 会自动重试；所有处理都是幂等的（同一张发票只发一次积分）。
 
+## 管理后台
+
+查看用户（包括未注册的匿名设备）、调用量、成本、谁触发了限额。设计见 [TECH_DESIGN.md §5.8](../TECH_DESIGN.md)。
+
+1. `.env` 中设置 `ADMIN_TOKEN`（`openssl rand -base64 32`），`docker compose up -d`
+2. 后台只监听宿主机 `127.0.0.1:8788`，从自己电脑访问：
+   - SSH 隧道：`ssh -N -L 8789:127.0.0.1:8788 <用户>@<服务器>`，然后在本机打开 `http://127.0.0.1:8789`
+   - 或 Cloudflare Tunnel 再加一个 Public Hostname（如 `admin.example.com` → `http://localhost:8788`），
+     并在 Cloudflare Zero Trust → Access 里只允许你的邮箱访问
+3. 浏览器弹出登录框：用户名 `admin`，密码为 `ADMIN_TOKEN`
+
+| 页面 | 内容 |
+|---|---|
+| 概览 | 今天 / 7 天的请求、成功率、拒绝和错误、P50/P95 耗时、按模型和套餐的估算成本、新设备 / 新用户、近 14 天趋势、当前各套餐模型 |
+| 账户 | 注册用户和匿名设备，余额、今日 / 累计调用、成本、最近活跃；可搜索邮箱 / ID / IP，按活跃、用量、成本排序 |
+| 账户详情 | 设备、订阅、积分桶、流水、最近 50 次调用 |
+| 限额与风控 | 今天各类 IP 计数（标出超限）、接近或达到每日上限的账户、近 24 小时被拒绝的请求和错误、同一 IP / 同一硬件的多台设备 |
+
+目前只读；补发积分、停用账号、在线改模型等操作在后续阶段加入。
+
 ## 运维
 
 | 操作 | 命令 |
@@ -163,6 +184,9 @@ docker compose exec server /nextreply-server backup /backups/nextreply-$(date +%
 | `MOCK_AI` | `false` | 开发模式下不调用模型 |
 | `CLIENT_IP_HEADER` | 空 | 从哪个请求头取客户端 IP：Cloudflare 用 `CF-Connecting-IP`，nginx 用 `X-Real-IP`，直连留空。**只有在请求一定经过会覆盖该请求头的代理时才能设置**，否则可被伪造 |
 | `BIND_ADDR` / `PORT` | `127.0.0.1` / `8787` | 宿主机上的监听地址和端口（只在 compose 中使用） |
+| `ADMIN_TOKEN` | 空 | 设置后启动管理后台，至少 24 个字符 |
+| `ADMIN_ADDR` | `127.0.0.1:8788` | 后台监听地址；compose 中为容器内 `:8788`，只映射到宿主机 127.0.0.1 |
+| `ADMIN_TZ` | `Asia/Shanghai` | 后台显示时间的时区 |
 | `LISTEN_ADDR` | `:8787` | 监听地址 |
 | `DATABASE_PATH` | `./data/nextreply.db` | SQLite 文件；容器中为 `/data/nextreply.db` |
 

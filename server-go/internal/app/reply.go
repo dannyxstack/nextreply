@@ -22,6 +22,29 @@ var (
 	holdReleaseTTL = 5 * time.Second
 )
 
+// usageEvent 一次 /v1/reply 的元数据（不含任何内容），写入 usage_events 供后台统计。
+type usageEvent struct {
+	requestID, owner, deviceID, ip string
+	plan                           credits.PlanID
+	status, model, errorCode       string
+	credits                        int
+	latencyMs                      int64
+	usage                          ai.Usage
+	costMicros                     int64
+}
+
+func (s *Server) recordUsage(ctx context.Context, e usageEvent) {
+	_, err := s.db.ExecContext(context.WithoutCancel(ctx),
+		`INSERT INTO usage_events (request_id, owner, plan, status, credits, model, latency_ms, created_at,
+		   device_id, ip, tokens_in, tokens_out, cache_read, cache_write, cost_micros, error_code)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.requestID, e.owner, e.plan, e.status, e.credits, nullStr(e.model), e.latencyMs, s.nowMs(),
+		nullStr(e.deviceID), nullStr(e.ip), e.usage.Input, e.usage.Output, e.usage.CacheRead, e.usage.CacheWrite, e.costMicros, nullStr(e.errorCode))
+	if err != nil {
+		slog.Error("insert usage event failed", "err", err.Error())
+	}
+}
+
 func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 	started := s.now()
 	requestID := authn.NewUUID()
@@ -50,14 +73,23 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 		return apierr.New(apierr.BadRequest, "Unsupported media_type.")
 	}
 
+	ip := s.clientIP(r)
+	event := usageEvent{requestID: requestID, owner: caller.Owner, deviceID: caller.DeviceID, ip: ip, plan: caller.Plan}
+	reject := func(reason string, err error) error {
+		event.status, event.errorCode = "rejected:"+reason, reason
+		event.latencyMs = s.now().Sub(started).Milliseconds()
+		s.recordUsage(ctx, event)
+		return err
+	}
+
 	// 外层防线：同一 IP 每日请求上限（防止大量账号 / 设备从同一来源刷量）
-	ipKey := s.ipKey("ip", s.clientIP(r))
+	ipKey := s.ipKey("ip", ip)
 	count, err := s.readCount(ctx, ipKey)
 	if err != nil {
 		return err
 	}
 	if count >= s.cfg.IPDailyQuota {
-		return apierr.New(apierr.RateLimited, "Too many requests from this network today.")
+		return reject("ip_quota", apierr.New(apierr.RateLimited, "Too many requests from this network today."))
 	}
 
 	// 预扣积分（含频率限制、每日上限）。幂等键由客户端提供，网络重试不会重复扣费
@@ -75,9 +107,9 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 	}
 	if !hold.OK() {
 		msg := map[string]string{"insufficient_credits": "Not enough credits.", "rate_limited": "Too many requests, slow down.", "daily_cap": "Daily limit reached."}[hold.Code]
-		return apierr.WithDetails(apierr.Code(hold.Code), msg, map[string]any{
+		return reject(hold.Code, apierr.WithDetails(apierr.Code(hold.Code), msg, map[string]any{
 			"plan": caller.Plan, "remaining": hold.Remaining, "login_required": caller.Kind == "device",
-		})
+		}))
 	}
 
 	// 客户端断开时请求的 ctx 会被取消；退还 / 确认积分必须用独立的 ctx，否则会留下悬空预扣
@@ -106,7 +138,10 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 		if errors.As(err, &ae) {
 			code = ae.Code
 		}
-		slog.Info("reply_error", "request_id", requestID, "device", device, "plan", caller.Plan, "code", code, "latency_ms", s.now().Sub(started).Milliseconds())
+		event.status, event.errorCode, event.model = "error:"+string(code), string(code), model.Model
+		event.latencyMs = s.now().Sub(started).Milliseconds()
+		s.recordUsage(ctx, event)
+		slog.Info("reply_error", "request_id", requestID, "device", device, "plan", caller.Plan, "code", code, "latency_ms", event.latencyMs)
 		return err
 	}
 
@@ -130,15 +165,12 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 	slog.Info("reply", "request_id", requestID, "device", device, "plan", caller.Plan, "status", out.Result.Status, "model", out.Model,
 		"fallback", out.FallbackUsed, "latency_ms", latency, "tokens_in", out.Usage.Input, "tokens_out", out.Usage.Output,
 		"cache_read", out.Usage.CacheRead, "cache_write", out.Usage.CacheWrite, "client_version", optionalString(body, "client_version", 20))
-	creditsUsed := 0
+	event.status, event.model, event.latencyMs, event.usage = string(out.Result.Status), out.Model, latency, out.Usage
+	event.costMicros = ai.CostMicros(out.Model, out.Usage)
 	if charged {
-		creditsUsed = credits.ReplyCost
+		event.credits = credits.ReplyCost
 	}
-	if _, err := s.db.ExecContext(context.WithoutCancel(ctx),
-		`INSERT INTO usage_events (request_id, owner, plan, status, credits, model, latency_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		requestID, caller.Owner, caller.Plan, out.Result.Status, creditsUsed, out.Model, latency, s.nowMs()); err != nil {
-		slog.Error("insert usage event failed", "err", err.Error())
-	}
+	s.recordUsage(ctx, event)
 
 	return writeJSON(w, http.StatusOK, map[string]any{
 		"status":   out.Result.Status,

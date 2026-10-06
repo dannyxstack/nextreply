@@ -1,0 +1,47 @@
+{{define "content"}}
+{{$q := .Query}}
+{{with .Data}}
+<h1>账户</h1>
+<form class="filters" method="get" action="/accounts">
+  <span>
+    <a href="{{query $q "kind" ""}}" class="{{if eq .Filter.Kind ""}}on{{end}}">全部</a>
+    <a href="{{query $q "kind" "user"}}" class="{{if eq .Filter.Kind "user"}}on{{end}}">注册用户</a>
+    <a href="{{query $q "kind" "device"}}" class="{{if eq .Filter.Kind "device"}}on{{end}}">匿名设备</a>
+  </span>
+  <span>排序：
+    <a href="{{query $q "sort" ""}}" class="{{if eq .Filter.Sort ""}}on{{end}}">最近活跃</a>
+    <a href="{{query $q "sort" "usage"}}" class="{{if eq .Filter.Sort "usage"}}on{{end}}">调用量</a>
+    <a href="{{query $q "sort" "cost"}}" class="{{if eq .Filter.Sort "cost"}}on{{end}}">成本</a>
+    <a href="{{query $q "sort" "created"}}" class="{{if eq .Filter.Sort "created"}}on{{end}}">注册时间</a>
+  </span>
+  {{if .Filter.Kind}}<input type="hidden" name="kind" value="{{.Filter.Kind}}">{{end}}
+  {{if .Filter.Sort}}<input type="hidden" name="sort" value="{{.Filter.Sort}}">{{end}}
+  <input type="search" name="q" value="{{.Filter.Query}}" placeholder="邮箱 / 用户或设备 ID / 首次 IP">
+  <button type="submit">搜索</button>
+</form>
+
+<div class="scroll"><table>
+<tr><th>类型</th><th>账户</th><th>套餐</th><th class="n">余额</th><th class="n">今日</th><th class="n">累计成功</th><th class="n">累计请求</th><th class="n">估算成本</th><th>最近活跃</th><th>创建</th><th>设备 / 首次 IP</th></tr>
+{{range .Rows}}
+<tr>
+  <td>{{if eq .Kind "u"}}<span class="tag">用户</span>{{else}}<span class="tag muted">设备</span>{{end}}</td>
+  <td><a href="/accounts/{{.Kind}}/{{.ID}}">{{if eq .Kind "u"}}{{.Label}}{{else}}{{short .ID}}{{end}}</a>{{if ne .Status "active"}} <span class="bad">{{.Status}}</span>{{end}}</td>
+  <td>{{plan .Plan}}</td>
+  <td class="n {{if eq .Balance 0}}warn{{end}}">{{.Balance}}</td>
+  <td class="n">{{.UsedToday}}</td>
+  <td class="n">{{.OKTotal}}</td>
+  <td class="n">{{.Requests}}</td>
+  <td class="n">{{usd .CostMicros}}</td>
+  <td>{{time .LastActive}}</td>
+  <td>{{time .CreatedAt}}</td>
+  <td>{{if eq .Kind "u"}}{{.Devices}} 台{{else}}{{.FirstIP}}{{end}}</td>
+</tr>
+{{else}}<tr><td colspan="11" class="empty">没有匹配的账户</td></tr>{{end}}
+</table></div>
+<div class="pager">
+  {{if gt .Filter.Offset 0}}<a href="{{query $q "offset" (itoa .Prev)}}">← 上一页</a>{{end}}
+  {{if .More}}<a href="{{query $q "offset" (itoa .Next)}}">下一页 →</a>{{end}}
+</div>
+<p class="muted">匿名设备指未绑定账号的设备；设备登录后归入对应用户。余额不含当天尚未发放的每日补充。</p>
+{{end}}
+{{end}}

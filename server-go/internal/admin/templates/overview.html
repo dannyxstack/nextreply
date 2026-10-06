@@ -1,0 +1,70 @@
+{{define "window"}}
+<div class="cards">
+  <div class="card"><div class="k">请求</div><div class="v">{{num (int64 .Total)}}</div><div class="s">成功 {{.OK}} · 成功率 {{pct .OK .Total}}</div></div>
+  <div class="card"><div class="k">无法生成（非聊天 / 内容不足）</div><div class="v">{{.Unusable}}</div><div class="s">{{pct .Unusable .Total}}，不扣积分</div></div>
+  <div class="card"><div class="k">被拒绝（限额）</div><div class="v {{if .Rejected}}warn{{end}}">{{.Rejected}}</div><div class="s">{{pct .Rejected .Total}}</div></div>
+  <div class="card"><div class="k">出错</div><div class="v {{if .Errors}}bad{{end}}">{{.Errors}}</div><div class="s">{{pct .Errors .Total}}</div></div>
+  <div class="card"><div class="k">服务端耗时（成功）</div><div class="v">{{.P50}} ms</div><div class="s">P50 · P95 {{.P95}} ms</div></div>
+  <div class="card"><div class="k">估算成本</div><div class="v">{{usd .CostMicros}}</div><div class="s">{{if .OK}}每次成功 ≈ {{usd (div .CostMicros .OK)}}{{else}}—{{end}}</div></div>
+  <div class="card"><div class="k">活跃账户</div><div class="v">{{.ActiveAccounts}}</div><div class="s">有成功调用的用户 / 设备</div></div>
+  <div class="card"><div class="k">新设备 / 新用户</div><div class="v">{{.NewDevices}} / {{.NewUsers}}</div><div class="s">注册转化 {{pct .NewUsers .NewDevices}}</div></div>
+</div>
+{{end}}
+
+{{define "content"}}
+{{with .Data}}
+<h1>概览</h1>
+
+<h2>今天</h2>
+{{template "window" .Today}}
+
+<h2>最近 7 天</h2>
+{{template "window" .Week}}
+
+<div class="grid2">
+<div>
+<h2>按模型（7 天）</h2>
+<div class="scroll"><table>
+<tr><th>模型</th><th class="n">请求</th><th class="n">输入</th><th class="n">输出</th><th class="n">缓存读</th><th class="n">缓存写</th><th class="n">估算成本</th></tr>
+{{range .Week.Models}}<tr><td>{{.Model}}</td><td class="n">{{.Requests}}</td><td class="n">{{num .TokensIn}}</td><td class="n">{{num .TokensOut}}</td><td class="n">{{num .CacheRead}}</td><td class="n">{{num .CacheWrite}}</td><td class="n">{{usd .CostMicros}}</td></tr>
+{{else}}<tr><td colspan="7" class="empty">暂无数据</td></tr>{{end}}
+</table></div>
+</div>
+<div>
+<h2>按套餐（7 天）</h2>
+<div class="scroll"><table>
+<tr><th>套餐</th><th class="n">请求</th><th class="n">成功</th><th class="n">估算成本</th><th class="n">每次成功成本</th></tr>
+{{range .Week.Plans}}<tr><td>{{plan .Plan}}</td><td class="n">{{.Requests}}</td><td class="n">{{.OK}}</td><td class="n">{{usd .CostMicros}}</td><td class="n">{{if .OK}}{{usd (div .CostMicros .OK)}}{{else}}—{{end}}</td></tr>
+{{else}}<tr><td colspan="5" class="empty">暂无数据</td></tr>{{end}}
+</table></div>
+</div>
+</div>
+
+<div class="grid2">
+<div>
+<h2>请求状态（7 天）</h2>
+<div class="scroll"><table>
+<tr><th>状态</th><th class="n">次数</th></tr>
+{{range .Week.Statuses}}<tr><td class="{{status .Name}}">{{.Name}}</td><td class="n">{{.Count}}</td></tr>
+{{else}}<tr><td colspan="2" class="empty">暂无数据</td></tr>{{end}}
+</table></div>
+</div>
+<div>
+<h2>当前配置</h2>
+<div class="scroll"><table>
+<tr><th>套餐</th><th>模型</th><th>effort</th><th class="n">每日上限</th><th class="n">每日补充</th><th class="n">有效订阅</th></tr>
+{{$subs := .Subscriptions}}
+{{range .PlanModels}}<tr><td>{{.Label}}</td><td>{{.Model}}</td><td>{{.Effort}}</td><td class="n">{{.DailyCap}}</td><td class="n">{{if .DailyRefill}}{{.DailyRefill}}{{else}}—{{end}}</td>
+<td class="n">{{$label := .Label}}{{range $subs}}{{if eq .Name $label}}{{.Count}}{{end}}{{end}}</td></tr>{{end}}
+</table></div>
+</div>
+</div>
+
+<h2>近 14 天</h2>
+<div class="scroll"><table>
+<tr><th>日期</th><th class="n">请求</th><th class="n">成功</th><th class="n">被拒绝</th><th class="n">出错</th><th class="n">估算成本</th><th class="n">新设备</th><th class="n">新用户</th></tr>
+{{range .Days}}<tr><td>{{.Day}}</td><td class="n">{{.Requests}}</td><td class="n">{{.OK}}</td><td class="n {{if .Rejected}}warn{{end}}">{{.Rejected}}</td><td class="n {{if .Errors}}bad{{end}}">{{.Errors}}</td><td class="n">{{usd .CostMicros}}</td><td class="n">{{.NewDevices}}</td><td class="n">{{.NewUsers}}</td></tr>{{end}}
+</table></div>
+<p class="muted">成本按 internal/ai/pricing.go 的价目表估算，实际账单以 Anthropic Console 为准。日期按后台时区划分；套餐每日上限和 IP 限额按 UTC 日计算。</p>
+{{end}}
+{{end}}
