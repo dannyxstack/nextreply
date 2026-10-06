@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// 与服务端 `/v1/reply` 的响应保持一致（见 server/src/ai/schema.ts）。
+/// 与服务端 `/v1/reply` 的响应保持一致（见 server-go/internal/ai/schema.go）。
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ReplyResult {
     pub status: ReplyStatus,

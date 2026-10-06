@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+data/
+backups/
+*.db
+*.db-*
+deploy/
+docker-compose*.yml
+README.md

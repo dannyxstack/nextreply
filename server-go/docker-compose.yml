@@ -1,0 +1,59 @@
+# NextReply 服务端部署：server（Go 服务 + SQLite）+ caddy（HTTPS 反向代理，自动申请证书）
+#
+#   cp .env.example .env    # 填写配置
+#   docker compose up -d --build
+#
+# 详见 README.md。
+
+services:
+  server:
+    build:
+      context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+    image: nextreply-server:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LISTEN_ADDR: ":8787"
+      DATABASE_PATH: /data/nextreply.db
+      # Caddy 会用真实的对端地址覆盖这个请求头，客户端无法伪造
+      CLIENT_IP_HEADER: X-Real-IP
+    volumes:
+      - data:/data
+      - ./backups:/backups
+    # 只绑定本机，便于在服务器上调试（curl 127.0.0.1:8787/v1/health）；公网流量走 caddy
+    ports:
+      - "127.0.0.1:8787:8787"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?请在 .env 中设置 DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:

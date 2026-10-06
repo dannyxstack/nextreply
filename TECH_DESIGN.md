@@ -12,8 +12,9 @@
 | 桌面壳 | **Tauri 2** | 体积小、常驻内存低，Rust 侧直接调用系统截图 / 窗口 API |
 | 核心逻辑 | **Rust** | 快捷键、截图、窗口管理、状态机、网络请求、剪贴板 |
 | UI | **React 18 + TypeScript + Vite** | 三个轻量页面：框选（selector）、回复卡片（overlay）、设置（settings） |
-| 中转服务 | **Cloudflare Workers + Hono + TypeScript** | 无状态边缘函数；用官方 `@anthropic-ai/sdk` 调用 Claude |
-| 额度存储 | **Cloudflare KV** | 按设备 / IP 记录每日额度 |
+| 中转服务 | **Go（标准库 net/http）** | 单个静态二进制，Linux 上用 Docker Compose 部署；用官方 `anthropic-sdk-go` 调用 Claude |
+| 存储 | **SQLite**（`modernc.org/sqlite`，纯 Go） | 账号、积分、订阅、限额计数都在一个文件里；单实例部署 |
+| 反向代理 | **Caddy** | 自动 HTTPS；流式转发请求体，截图不落盘 |
 | 模型 | 默认 `claude-opus-5-5`（effort `low`），可通过环境变量切换 | 见 §6 |
 
 **原则**
@@ -52,17 +53,15 @@ cc-nextreply/
 │           ├── storage/          # settings.rs · secrets.rs(keyring)
 │           ├── telemetry.rs
 │           └── platform/         # windows.rs · macos.rs(预留)
-└── server/                       # 中转服务
-    ├── wrangler.toml
-    └── src/
-        ├── index.ts              # 路由
-        ├── auth.ts               # 设备 token（HMAC，无状态）
-        ├── quota.ts              # KV 每日额度
-        ├── ai/
-        │   ├── prompt.ts         # System Prompt
-        │   ├── schema.ts         # JSON Schema + zod 校验
-        │   └── anthropic.ts      # Claude 调用
-        └── errors.ts
+└── server-go/                    # 中转服务（Go，部署说明见 server-go/README.md）
+    ├── cmd/nextreply-server/     # 入口：serve / migrate / backup / healthcheck
+    ├── internal/
+    │   ├── app/                  # HTTP：路由、/v1/reply、账号登录、计费、Stripe、页面
+    │   ├── ai/                   # prompt.go · schema.go（协议） · anthropic.go（Claude 调用）
+    │   ├── credits/              # 套餐、分桶分配、预扣/确认/退还
+    │   ├── authn/                # 设备 token、JWT、PKCE
+    │   └── store/                # SQLite、迁移（migrations/*.sql）、备份
+    ├── Dockerfile · docker-compose.yml · deploy/Caddyfile
 ```
 
 ---
@@ -79,8 +78,8 @@ cc-nextreply/
 └────────────────────────────────────┬─────────────────────────────────────────┘
                                      │ HTTPS  POST /v1/reply (JPEG base64)
 ┌────────────────────────────────────▼─────────────────────────────────────────┐
-│ Server (Cloudflare Workers)                                                  │
-│  auth(设备token) → quota(KV) → prompt + schema → Claude → 校验 → JSON 返回   │
+│ Server (Go, Docker Compose: caddy → server, SQLite)                          │
+│  auth → IP 限额 → 积分预扣 → prompt + schema → Claude → 校验 → 确认/退还     │
 │  只记录元数据（延迟、token、模型、错误码），不记录图片和文字                  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -223,9 +222,10 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 ```
 
 存储分工：
-- **D1**：users、devices、otp_codes、auth_codes、refresh_tokens、subscriptions、web_tickets、usage_events（只有元数据）。表结构见 `server/migrations/`。
-- **Durable Object `CreditAccount`**：每个积分账户一个实例（`u:<user_id>` 或 `d:<device_id>`），内置 SQLite 存积分桶、流水、预扣、当日用量。DO 内同步 SQL 串行执行，扣费原子。
-- **KV**：按 IP 的每日软限制计数。
+全部在一个 SQLite 文件里（WAL 模式），表结构见 `server-go/internal/store/migrations/`：
+- **账号**：users、devices、otp_codes、auth_codes、refresh_tokens、subscriptions、web_tickets、usage_events（只有元数据）。
+- **积分账户**（`u:<user_id>` 或 `d:<device_id>`）：credit_grants（积分桶）、credit_ledger（流水）、credit_holds（预扣）、credit_usage_day（当日用量）。所有积分操作在进程内互斥锁 + 事务中执行，扣费原子；因此服务端**单实例部署**。
+- **ip_counters**：按 IP 的每日软限制计数。
 
 ### 5.3 登录（RFC 8252）
 1. 桌面端开本机端口 `127.0.0.1:<随机>`，生成 `state` 和 PKCE `verifier / challenge`，用系统浏览器打开 `/auth/login?device_id&redirect_uri&state&code_challenge`。
@@ -239,7 +239,7 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 - **分桶**：trial（体验，不过期）、bonus（注册赠送，90 天）、daily（免费用户每日补充，当天有效）、subscription（订阅周期 + 3 天宽限）、topup（预留）。**先扣最快过期的桶**。
 - **扣费流程**：`reserve`（预扣，同时检查频率和每日上限）→ 调用模型 → 成功且 `status=ok` 时 `commit`，否则 `release` 退还。超过 5 分钟未确认的预扣自动退还。
 - **幂等**：客户端每次分析生成一个 `Idempotency-Key`，网络重试（进行中或已完成）都不会重复扣费。
-- 套餐数值集中在 `server/src/credits/plans.ts`。
+- 套餐数值集中在 `server-go/internal/credits/plans.go`。
 
 ### 5.5 订阅支付
 - 桌面端 `POST /v1/billing/link` 申请 10 分钟有效的一次性票据 → 系统浏览器打开 `/billing/checkout` → 跳转 Stripe Checkout。
@@ -318,6 +318,7 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 | P0-4 | Overlay、定位、复制、焦点还原 | MVP 启动 |
 | P1 | Settings 完整化、错误处理细化、混合 DPI 测试、改快捷键、开机启动、BYOK 隐藏选项 | |
 | 用户系统 1–2 | 匿名体验、邮箱登录、积分账户、注册赠送、订阅支付（Stripe / 开发模式模拟）、账户设置页 | 已实现，待联调 |
+| 服务端 Go 重写 | 接口不变；SQLite 替代 D1 / Durable Object / KV；Docker Compose + Caddy 部署 | 已实现，待联调 |
 | 用户系统 3–4 | 风控评分、手机验证、成本熔断；Google / Apple / 微信登录、国内支付 | |
 | P2 | 流式逐条显示、埋点上报、签名、自动更新、视觉打磨 | |
 
@@ -326,10 +327,10 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 ## 9. 本地开发
 
 ```bash
-# 中转服务
-cd server && npm install
-cp .dev.vars.example .dev.vars        # 填入 ANTHROPIC_API_KEY、TOKEN_SECRET
-npm run dev                            # http://127.0.0.1:8787
+# 中转服务（Go 1.27+）
+cd server-go
+DEV_MODE=true MOCK_AI=true TOKEN_SECRET=dev-secret go run ./cmd/nextreply-server   # http://127.0.0.1:8787
+# 去掉 MOCK_AI 并设置 ANTHROPIC_API_KEY 即调用真实模型；线上部署见 server-go/README.md
 
 # 桌面端
 cd apps/desktop && npm install

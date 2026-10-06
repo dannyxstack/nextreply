@@ -1,0 +1,20 @@
+{
+	# 不需要 Caddy 的管理接口
+	admin off
+}
+
+{$DOMAIN} {
+	encode gzip
+
+	# 截图 base64 后最大约 6MB；Caddy 默认流式转发请求体，不会把截图写到磁盘临时文件
+	request_body {
+		max_size 8MB
+	}
+
+	reverse_proxy server:8787 {
+		# 覆盖客户端可能自带的同名请求头，服务端按它做按 IP 的限额
+		header_up X-Real-IP {remote_host}
+	}
+
+	# 不开启访问日志：结账 / 管理订阅链接的 URL 里带有一次性票据
+}
