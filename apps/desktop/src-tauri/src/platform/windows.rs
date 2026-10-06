@@ -39,6 +39,31 @@ pub fn restore_foreground(handle: isize) {
     }
 }
 
+/// 本机的稳定标识（Windows 安装时生成的 MachineGuid，重装应用不变）。只用于防刷，发送前会加盐哈希。
+pub fn machine_id() -> Option<String> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+    let key: Vec<u16> = "SOFTWARE\\Microsoft\\Cryptography\0".encode_utf16().collect();
+    let value: Vec<u16> = "MachineGuid\0".encode_utf16().collect();
+    let mut buf = [0u16; 64];
+    let mut size = (buf.len() * 2) as u32;
+    let rc = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr() as *mut c_void,
+            &mut size,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..len])).filter(|s| !s.is_empty())
+}
+
 /// 太小的窗口（托盘弹出的小控件、1px 的辅助窗口等）不参与识别
 const MIN_WINDOW_SIZE: i32 = 40;
 

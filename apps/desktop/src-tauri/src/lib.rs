@@ -1,3 +1,4 @@
+mod account;
 mod ai;
 mod capture;
 mod commands;
@@ -24,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| commands::show_settings(app)))
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(hotkey::handle).build())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .register_asynchronous_uri_scheme_protocol("frame", capture::frames::protocol)
         .setup(setup)
@@ -46,6 +48,11 @@ pub fn run() {
             commands::copy_reply,
             commands::get_settings,
             commands::save_settings,
+            commands::account_status,
+            commands::account_login,
+            commands::account_logout,
+            commands::billing_open,
+            commands::open_account,
         ])
         .build(tauri::generate_context!())
         .expect("error while building NextReply")

@@ -163,3 +163,14 @@ kbd {
   color: var(--muted);
   text-align: right;
 }
+
+.action {
+  all: unset;
+  margin-top: 8px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}

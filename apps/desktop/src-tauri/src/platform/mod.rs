@@ -19,6 +19,11 @@ mod fallback {
         false
     }
 
+    /// TODO(macOS)：IOPlatformUUID。
+    pub fn machine_id() -> Option<String> {
+        None
+    }
+
     /// TODO(macOS)：用 CGWindowListCopyWindowInfo 获取窗口位置（不需要辅助功能权限）。
     pub fn visible_windows() -> Vec<crate::geom::Rect> {
         Vec::new()

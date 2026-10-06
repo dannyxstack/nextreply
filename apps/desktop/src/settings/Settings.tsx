@@ -1,4 +1,5 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
+import { AccountSection } from "./AccountSection";
 import { getSettings, saveSettings, type SettingsInput, type SettingsView } from "../shared/ipc";
 
 const isMac = navigator.userAgent.includes("Mac");
@@ -79,6 +80,8 @@ export function Settings() {
         <h1>NextReply</h1>
         <span className="version">v{view.version}</span>
       </header>
+
+      <AccountSection />
 
       <section>
         <h2>General</h2>

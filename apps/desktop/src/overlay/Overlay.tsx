@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { cancelFlow, copyReply, onOverlayState, overlayResize, overlayState, type AiErrorCode, type OverlayPayload } from "../shared/ipc";
+import { cancelFlow, copyReply, onOverlayState, openAccount, overlayResize, overlayState, type AiErrorCode, type OverlayPayload } from "../shared/ipc";
 
 const STILL_THINKING_AFTER_MS = 4000;
 
@@ -12,6 +12,17 @@ const ERROR_TEXT: Record<AiErrorCode, [string, string?]> = {
   insufficient_context: ["Not enough conversation context.", "Try selecting a slightly larger area."],
   not_a_conversation: ["I couldn't confidently identify the conversation.", "Try selecting the chat area again."],
   quota_exceeded: ["Today's free replies are used up.", "Come back tomorrow."],
+  login_required: ["体验次数已用完", "登录即送 50 次回复额度。"],
+  insufficient_credits: ["积分已用完", "明天会补充免费额度，或升级 Pro 获得更多。"],
+  daily_cap: ["今天的使用次数已达上限", "明天再来，或升级套餐提高上限。"],
+  rate_limited: ["请求太频繁了", "稍等几秒再试。"],
+};
+
+/** 这些错误需要用户去账户页处理（登录 / 升级） */
+const ACCOUNT_ACTION: Partial<Record<AiErrorCode, string>> = {
+  login_required: "登录领取额度",
+  insufficient_credits: "查看账户 / 升级",
+  daily_cap: "查看账户 / 升级",
 };
 
 export function Overlay() {
@@ -83,6 +94,11 @@ function Body({ state, stillThinking }: { state: OverlayPayload; stillThinking: 
         <div className="status error">
           <div className="error-title">{title}</div>
           {hint && <div className="error-hint">{hint}</div>}
+          {ACCOUNT_ACTION[state.code] && (
+            <button className="action" onClick={() => openAccount()}>
+              {ACCOUNT_ACTION[state.code]}
+            </button>
+          )}
           <Footer />
         </div>
       );
@@ -106,12 +122,13 @@ function Body({ state, stillThinking }: { state: OverlayPayload; stillThinking: 
               </li>
             ))}
           </ul>
-          <Footer withKeys />
+          <Footer withKeys remaining={state.credits_remaining} />
         </>
       );
   }
 }
 
-function Footer({ withKeys = false }: { withKeys?: boolean }) {
-  return <div className="footer">{withKeys ? "点击或按 1–3 复制 · Esc 关闭" : "Esc 关闭"}</div>;
+function Footer({ withKeys = false, remaining }: { withKeys?: boolean; remaining?: number | null }) {
+  const keys = withKeys ? "点击或按 1–3 复制 · Esc 关闭" : "Esc 关闭";
+  return <div className="footer">{remaining != null ? `剩余 ${remaining} 次 · ${keys}` : keys}</div>;
 }

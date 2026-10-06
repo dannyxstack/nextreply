@@ -3,10 +3,26 @@ main = "src/index.ts"
 compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 
-# 本地开发时 wrangler 会用本地模拟的 KV；部署前用 `wrangler kv namespace create QUOTA` 创建并替换 id
+# 按 IP 的软限制计数。部署前用 `wrangler kv namespace create QUOTA` 创建并替换 id
 [[kv_namespaces]]
 binding = "QUOTA"
 id = "00000000000000000000000000000000"
+
+# 账号、设备、订阅。部署前用 `wrangler d1 create nextreply` 创建并替换 database_id
+[[d1_databases]]
+binding = "DB"
+database_name = "nextreply"
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+# 每个用户 / 设备一个积分账户（SQLite 存储的 Durable Object）
+[[durable_objects.bindings]]
+name = "CREDITS"
+class_name = "CreditAccount"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CreditAccount"]
 
 [vars]
 MODEL = "claude-opus-5-5"
@@ -14,10 +30,14 @@ EFFORT = "low"
 THINKING = "auto"
 FALLBACKS = "default"
 MAX_TOKENS = "8000"
-DAILY_QUOTA = "30"
 IP_DAILY_QUOTA = "200"
 REGISTER_PER_IP = "20"
+PUBLIC_URL = "https://nextreply-server.example.workers.dev"
+# 线上必须为 false；本地开发在 .dev.vars 里覆盖为 true
+DEV_MODE = "false"
 
 # 机密通过 `wrangler secret put` 设置（本地放在 .dev.vars）：
-#   ANTHROPIC_API_KEY
-#   TOKEN_SECRET
+#   ANTHROPIC_API_KEY、TOKEN_SECRET
+#   RESEND_API_KEY、EMAIL_FROM                       邮件验证码
+#   TURNSTILE_SITE_KEY、TURNSTILE_SECRET             注册人机验证（可选）
+#   STRIPE_SECRET_KEY、STRIPE_WEBHOOK_SECRET、STRIPE_PRICE_PRO、STRIPE_PRICE_PRO_PLUS   订阅支付

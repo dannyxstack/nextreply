@@ -78,7 +78,7 @@ impl CloseReason {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum OverlayPayload {
     Loading { session: u64 },
-    Result { session: u64, summary: String, replies: Vec<ReplySuggestion> },
+    Result { session: u64, summary: String, replies: Vec<ReplySuggestion>, credits_remaining: Option<i64> },
     Error { session: u64, code: AiErrorCode },
     Copied { session: u64 },
 }
@@ -286,15 +286,7 @@ pub fn on_selection(app: &AppHandle, monitor: usize, session: u64, rect: CssRect
     }
     selector::hide_all(app);
 
-    let provider = {
-        let s = state.settings.lock().unwrap();
-        ProxyProvider {
-            http: state.http.clone(),
-            base_url: s.server_url.clone(),
-            device_id: s.device_id.clone(),
-            tokens: state.tokens.clone(),
-        }
-    };
+    let provider = ProxyProvider { creds: state.credentials() };
     let ctx = {
         let s = state.settings.lock().unwrap();
         UserContext {
@@ -347,7 +339,12 @@ fn on_result(app: &AppHandle, session: u64, result: Result<ReplyResult, AiErrorC
         flow.task = None;
         match result {
             Ok(r) => {
-                let payload = OverlayPayload::Result { session, summary: r.analysis.summary.clone(), replies: r.replies.clone() };
+                let payload = OverlayPayload::Result {
+                    session,
+                    summary: r.analysis.summary.clone(),
+                    replies: r.replies.clone(),
+                    credits_remaining: r.credits.as_ref().map(|c| c.remaining),
+                };
                 flow.result = Some(r);
                 payload
             }

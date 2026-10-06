@@ -1,10 +1,14 @@
 //! 前端可调用的 IPC 命令。业务逻辑都在 flow / hotkey 等模块里，这里只做参数转换。
 
+use std::sync::atomic::Ordering;
+
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::{
+    account::{login, AuthError},
     capture::crop::CssRect,
     flow::{self, CloseReason, OverlayPayload, SelectorFrame},
     hotkey, selector,
@@ -67,6 +71,70 @@ pub fn overlay_resize(app: AppHandle, height: f64) {
 #[tauri::command]
 pub fn copy_reply(app: AppHandle, index: usize) -> Result<(), String> {
     flow::copy_reply(&app, index)
+}
+
+// ---------- account ----------
+
+pub const EVT_ACCOUNT_CHANGED: &str = "account:changed";
+
+/// 账户信息：服务端 /v1/me 的结果，附加本地登录状态。
+#[tauri::command]
+pub async fn account_status(app: AppHandle) -> Result<serde_json::Value, String> {
+    let creds = app.state::<AppState>().credentials();
+    let mut me = creds.me().await.map_err(|e| e.to_string())?;
+    me["logged_in"] = serde_json::Value::Bool(creds.is_logged_in());
+    Ok(me)
+}
+
+/// 用系统浏览器登录。返回时登录已完成（或失败 / 超时）。
+#[tauri::command]
+pub async fn account_login(app: AppHandle) -> Result<(), String> {
+    let (creds, busy) = {
+        let state = app.state::<AppState>();
+        (state.credentials(), state.login_in_progress.swap(true, Ordering::SeqCst))
+    };
+    if busy {
+        return Err("登录正在进行中，请在浏览器里完成".into());
+    }
+    let result = async {
+        // 确保设备已在服务端登记（绑定账号、判断注册赠送都以设备为单位）
+        creds.device_token().await?;
+        let req = login::prepare(&creds)?;
+        #[cfg(debug_assertions)]
+        log::debug!("login url: {}", req.url);
+        app.opener().open_url(req.url.clone(), None::<&str>).map_err(|e| AuthError::Server(format!("无法打开浏览器：{e}")))?;
+        login::complete(&creds, req).await
+    }
+    .await;
+    app.state::<AppState>().login_in_progress.store(false, Ordering::SeqCst);
+    result.map_err(|e| e.to_string())?;
+
+    let _ = app.emit(EVT_ACCOUNT_CHANGED, ());
+    show_settings(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn account_logout(app: AppHandle) -> Result<(), String> {
+    let creds = app.state::<AppState>().credentials();
+    creds.logout().await;
+    let _ = app.emit(EVT_ACCOUNT_CHANGED, ());
+    Ok(())
+}
+
+/// 在浏览器中打开结账（purpose = "checkout"，需要 plan）或订阅管理（purpose = "portal"）页面。
+#[tauri::command]
+pub async fn billing_open(app: AppHandle, purpose: String, plan: Option<String>) -> Result<(), String> {
+    let creds = app.state::<AppState>().credentials();
+    let url = creds.billing_link(&purpose, plan.as_deref()).await.map_err(|e| e.to_string())?;
+    app.opener().open_url(url, None::<&str>).map_err(|e| format!("无法打开浏览器：{e}"))
+}
+
+/// overlay 上的"去登录 / 去升级"：先关闭当前流程，再打开设置页。
+#[tauri::command]
+pub fn open_account(app: AppHandle) {
+    flow::cancel(&app, CloseReason::Escape);
+    show_settings(&app);
 }
 
 // ---------- settings ----------

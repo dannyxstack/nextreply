@@ -8,6 +8,15 @@ pub struct ReplyResult {
     pub replies: Vec<ReplySuggestion>,
     #[serde(default)]
     pub meta: Option<ReplyMeta>,
+    #[serde(default)]
+    pub credits: Option<CreditsInfo>,
+}
+
+/// 本次请求后的剩余积分
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CreditsInfo {
+    pub remaining: i64,
+    pub plan: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +72,14 @@ pub enum AiErrorCode {
     Unavailable,
     InsufficientContext,
     NotAConversation,
+    /// 体验额度用完，登录可领取注册赠送
+    LoginRequired,
+    /// 已登录但积分用完，需要升级或等每日补充
+    InsufficientCredits,
+    /// 达到套餐的每日上限
+    DailyCap,
+    /// 请求太频繁
+    RateLimited,
 }
 
 impl AiError {

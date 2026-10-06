@@ -1,3 +1,18 @@
 ANTHROPIC_API_KEY=sk-ant-...
-# 任意足够长的随机字符串，用于签发设备 token
+# 任意足够长的随机字符串，用于签发设备 token 和登录令牌
 TOKEN_SECRET=change-me-to-a-long-random-string
+
+# 本地开发：没配邮件服务时验证码显示在登录页上；没配 Stripe 时提供模拟支付
+DEV_MODE=true
+PUBLIC_URL=http://127.0.0.1:8787
+# 测试积分扣减时不调用模型（返回固定结果，不花钱）
+# MOCK_AI=true
+
+# 可选：真实邮件
+# RESEND_API_KEY=re_...
+# EMAIL_FROM=NextReply <noreply@yourdomain.com>
+# 可选：Stripe 测试模式
+# STRIPE_SECRET_KEY=sk_test_...
+# STRIPE_WEBHOOK_SECRET=whsec_...
+# STRIPE_PRICE_PRO=price_...
+# STRIPE_PRICE_PRO_PLUS=price_...

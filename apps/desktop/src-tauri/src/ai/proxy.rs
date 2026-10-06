@@ -1,4 +1,4 @@
-//! 中转服务客户端：设备注册 + `/v1/reply`。
+//! 中转服务客户端：`/v1/reply`。凭据（设备 token / 登录令牌）由 `account::Credentials` 管理。
 
 use std::time::Duration;
 
@@ -10,20 +10,12 @@ use serde_json::json;
 
 use super::types::{AiError, AiErrorCode, ImagePayload, ReplyResult, ReplyStatus, UserContext};
 use super::AiProvider;
-use crate::storage::secrets::TokenStore;
+use crate::account::{AuthError, Bearer, Credentials};
 
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct ProxyProvider {
-    pub http: reqwest::Client,
-    pub base_url: String,
-    pub device_id: String,
-    pub tokens: TokenStore,
-}
-
-#[derive(Deserialize)]
-struct TokenResponse {
-    token: String,
+    pub creds: Credentials,
 }
 
 #[derive(Deserialize)]
@@ -36,6 +28,8 @@ struct ErrorInner {
     code: String,
     #[serde(default)]
     message: String,
+    #[serde(default)]
+    details: Option<serde_json::Value>,
 }
 
 fn network_err(e: reqwest::Error) -> AiError {
@@ -44,55 +38,28 @@ fn network_err(e: reqwest::Error) -> AiError {
     AiError::new(code, e.to_string())
 }
 
-impl ProxyProvider {
-    fn url(&self, path: &str) -> String {
-        format!("{}{}", self.base_url.trim_end_matches('/'), path)
-    }
-
-    async fn register(&self) -> Result<String, AiError> {
-        let resp = self
-            .http
-            .post(self.url("/v1/device/register"))
-            .json(&json!({ "device_id": self.device_id }))
-            .timeout(Duration::from_secs(10))
-            .send()
-            .await
-            .map_err(network_err)?;
-        if !resp.status().is_success() {
-            return Err(map_error_response(resp).await);
-        }
-        let token = resp.json::<TokenResponse>().await.map_err(network_err)?.token;
-        self.tokens.set(&token);
-        Ok(token)
-    }
-
-    async fn token(&self) -> Result<String, AiError> {
-        match self.tokens.get() {
-            Some(t) => Ok(t),
-            None => self.register().await,
-        }
-    }
-
-    async fn post_reply(&self, token: &str, body: &serde_json::Value) -> Result<reqwest::Response, AiError> {
-        self.http
-            .post(self.url("/v1/reply"))
-            .bearer_auth(token)
-            .json(body)
-            .timeout(REQUEST_TIMEOUT)
-            .send()
-            .await
-            .map_err(network_err)
+fn auth_err(e: AuthError) -> AiError {
+    match e {
+        AuthError::Network(d) => AiError::new(AiErrorCode::Network, d),
+        AuthError::Server(d) => AiError::new(AiErrorCode::Unavailable, d),
     }
 }
 
 async fn map_error_response(resp: reqwest::Response) -> AiError {
     let status = resp.status();
-    let body = resp.json::<ErrorBody>().await.ok();
-    let (code, message) = body.map(|b| (b.error.code, b.error.message)).unwrap_or_default();
-    match (status, code.as_str()) {
-        (StatusCode::TOO_MANY_REQUESTS, _) | (_, "quota_exceeded") => AiError::new(AiErrorCode::QuotaExceeded, message),
-        _ => AiError::new(AiErrorCode::Unavailable, format!("{status} {code} {message}")),
-    }
+    let body = resp.json::<ErrorBody>().await.ok().map(|b| b.error);
+    let (code, message, details) = body.map(|e| (e.code, e.message, e.details)).unwrap_or_default();
+    let login_required = details.as_ref().and_then(|d| d.get("login_required")).and_then(|v| v.as_bool()).unwrap_or(false);
+    let mapped = match code.as_str() {
+        "insufficient_credits" if login_required => AiErrorCode::LoginRequired,
+        "insufficient_credits" => AiErrorCode::InsufficientCredits,
+        "daily_cap" => AiErrorCode::DailyCap,
+        "rate_limited" => AiErrorCode::RateLimited,
+        "quota_exceeded" => AiErrorCode::QuotaExceeded,
+        _ if status == StatusCode::TOO_MANY_REQUESTS => AiErrorCode::RateLimited,
+        _ => AiErrorCode::Unavailable,
+    };
+    AiError::new(mapped, format!("{status} {code} {message}"))
 }
 
 #[async_trait]
@@ -106,15 +73,34 @@ impl AiProvider for ProxyProvider {
             "client_version": env!("CARGO_PKG_VERSION"),
         });
         drop(image);
+        // 同一次分析的重试共用一个幂等键，服务端不会重复扣费
+        let idempotency_key = uuid::Uuid::new_v4().simple().to_string();
 
-        let mut token = self.token().await?;
-        let mut resp = self.post_reply(&token, &body).await?;
-        if resp.status() == StatusCode::UNAUTHORIZED {
-            // token 失效（例如服务端换了密钥）：重新注册后重试一次
-            self.tokens.clear();
-            token = self.register().await?;
-            resp = self.post_reply(&token, &body).await?;
-        }
+        let mut retried = false;
+        let resp = loop {
+            let bearer = self.creds.bearer().await.map_err(auth_err)?;
+            let resp = self
+                .creds
+                .http
+                .post(self.creds.url("/v1/reply"))
+                .bearer_auth(bearer.token())
+                .header("idempotency-key", &idempotency_key)
+                .json(&body)
+                .timeout(REQUEST_TIMEOUT)
+                .send()
+                .await
+                .map_err(network_err)?;
+            if resp.status() == StatusCode::UNAUTHORIZED && !retried {
+                // 令牌失效：登录令牌则刷新，设备 token 则重新注册，然后重试一次
+                retried = true;
+                match bearer {
+                    Bearer::User(_) => self.creds.invalidate_access(),
+                    Bearer::Device(_) => self.creds.device_tokens.clear(),
+                }
+                continue;
+            }
+            break resp;
+        };
         if !resp.status().is_success() {
             return Err(map_error_response(resp).await);
         }

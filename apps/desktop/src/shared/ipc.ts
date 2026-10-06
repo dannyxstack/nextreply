@@ -61,11 +61,20 @@ export interface ReplySuggestion {
   text: string;
 }
 
-export type AiErrorCode = "network" | "quota_exceeded" | "unavailable" | "insufficient_context" | "not_a_conversation";
+export type AiErrorCode =
+  | "network"
+  | "quota_exceeded"
+  | "unavailable"
+  | "insufficient_context"
+  | "not_a_conversation"
+  | "login_required"
+  | "insufficient_credits"
+  | "daily_cap"
+  | "rate_limited";
 
 export type OverlayPayload =
   | { kind: "loading"; session: number }
-  | { kind: "result"; session: number; summary: string; replies: ReplySuggestion[] }
+  | { kind: "result"; session: number; summary: string; replies: ReplySuggestion[]; credits_remaining: number | null }
   | { kind: "error"; session: number; code: AiErrorCode }
   | { kind: "copied"; session: number };
 
@@ -95,3 +104,28 @@ export interface SettingsInput {
 
 export const getSettings = () => invoke<SettingsView>("get_settings");
 export const saveSettings = (input: SettingsInput) => invoke<SettingsView>("save_settings", { input });
+
+export const openAccount = () => invoke<void>("open_account");
+
+// ---------- account（服务端 /v1/me 的结构） ----------
+
+export type Bucket = "trial" | "bonus" | "daily" | "subscription" | "topup";
+
+export interface AccountStatus {
+  logged_in: boolean;
+  user: { id: string; email: string } | null;
+  plan: { id: "trial" | "free" | "pro" | "pro_plus"; label: string; daily_cap: number; monthly_credits: number | null };
+  credits: { total: number; used_today: number; buckets: { bucket: Bucket; remaining: number; expires_at: number | null }[] };
+  subscription: { plan: string; status: string; provider: string; current_period_end: number | null; cancel_at_period_end: boolean } | null;
+  billing: {
+    stripe: boolean;
+    dev: boolean;
+    plans: { id: "pro" | "pro_plus"; label: string; price_usd: number; monthly_credits: number; daily_cap: number }[];
+  };
+}
+
+export const accountStatus = () => invoke<AccountStatus>("account_status");
+export const accountLogin = () => invoke<void>("account_login");
+export const accountLogout = () => invoke<void>("account_logout");
+export const billingOpen = (purpose: "checkout" | "portal", plan?: "pro" | "pro_plus") => invoke<void>("billing_open", { purpose, plan });
+export const onAccountChanged = (cb: () => void): Promise<UnlistenFn> => listen("account:changed", () => cb());

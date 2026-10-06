@@ -119,11 +119,16 @@ small {
   margin: 8px 0 0;
 }
 
+/* 保存按钮固定在窗口底部，内容变长时不会被挤出可视区域 */
 footer {
+  position: sticky;
+  bottom: 0;
   display: flex;
   justify-content: flex-end;
   align-items: center;
   gap: 12px;
+  padding: 10px 0 14px;
+  background: var(--bg);
 }
 
 .message.ok {
@@ -155,4 +160,94 @@ button.link {
   color: var(--accent);
   cursor: pointer;
   padding: 0 0 0 6px;
+}
+
+/* ---------- Account ---------- */
+.account-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.account-email {
+  font-weight: 600;
+}
+
+.plan-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.plan-badge.plan-pro,
+.plan-badge.plan-pro_plus {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.credits {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+
+.credits-total {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.credits-unit {
+  color: var(--muted);
+}
+
+.credits-today {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.buckets {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sub-line {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 6px;
+}
+
+button.secondary {
+  font: inherit;
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.account-actions button.link {
+  padding: 6px 4px;
+}
+
+.account-error {
+  color: var(--danger);
+  font-size: 12px;
+  margin: 6px 0 0;
 }

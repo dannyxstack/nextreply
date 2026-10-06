@@ -160,22 +160,25 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 
 ### 5.1 接口
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `POST` | `/v1/device/register` | body `{device_id}` → `{token}`；按 IP 限制注册频率 |
-| `POST` | `/v1/reply` | `Authorization: Bearer <token>`，body 见下 |
-| `GET` | `/v1/health` | 健康检查 |
+| 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|
+| `POST` | `/v1/device/register` | — | body `{device_id, hw_hash?}` → `{token}`；新设备按规则发放体验额度 |
+| `GET` | `/auth/login` | — | 浏览器登录页（邮箱验证码），参数见 §5.3 |
+| `POST` | `/auth/email/start`、`/auth/email/verify` | — | 登录页调用：发送 / 校验验证码 |
+| `POST` | `/v1/auth/token` | — | 授权码 + PKCE verifier → access / refresh token |
+| `POST` | `/v1/auth/refresh`、`/v1/auth/logout` | refresh token | 轮换 / 作废 |
+| `GET` | `/v1/me` | 任一 | 套餐、各桶积分、今日用量、订阅状态、可购买套餐 |
+| `POST` | `/v1/reply` | 任一 | 生成回复；可带 `Idempotency-Key` 头 |
+| `POST` | `/v1/billing/link` | access | 申请结账 / 管理订阅的一次性网页链接 |
+| `GET/POST` | `/billing/*` | 一次性票据 | 结账跳转、Stripe webhook、开发模式模拟支付 |
+| `GET` | `/v1/health` | — | 健康检查 |
+
+"任一"指 access token（已登录）或设备 token（匿名）。JWT 三段、设备 token 两段，服务端据此区分。
 
 `POST /v1/reply` 请求：
 
 ```json
-{
-  "image": "<base64>",
-  "media_type": "image/jpeg",
-  "locale": "zh-CN",
-  "display_name": "Danny",
-  "client_version": "0.1.0"
-}
+{ "image": "<base64>", "media_type": "image/jpeg", "locale": "zh-CN", "display_name": "Danny", "client_version": "0.1.0" }
 ```
 
 成功响应（200）：
@@ -183,38 +186,80 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 ```json
 {
   "status": "ok",
-  "analysis": { "language": "zh-CN", "latest_message": "...", "summary": "...", "emotion": "...", "intent": "..." },
+  "analysis": { "language": "zh-CN", "latest_message": "...", "summary": "...", "emotion": "...", "intent": "...", "strategy": "..." },
   "replies": [ { "style": "empathetic", "label": "得体", "text": "..." }, { "style": "funny", ... }, { "style": "direct", ... } ],
-  "meta": { "request_id": "...", "latency_ms": 2310, "remaining_today": 17 }
+  "meta": { "request_id": "...", "latency_ms": 2310, "remaining_today": 54 },
+  "credits": { "remaining": 54, "plan": "free" }
 }
 ```
 
-`status` 也可能是 `insufficient_context` 或 `not_a_conversation`，这两种情况 `replies` 为空数组。客户端显示需求文档 §3.9 对应的提示。
+`status` 也可能是 `insufficient_context` 或 `not_a_conversation`，这两种情况 `replies` 为空数组，且**不扣积分**。
 
-错误响应（非 200）：`{ "error": { "code": "...", "message": "..." } }`
+错误响应（非 200）：`{ "error": { "code": "...", "message": "...", "details": {...}? } }`
 
-| HTTP | code | 客户端提示 |
+| HTTP | code | 客户端处理 |
 |---|---|---|
-| 401 | `unauthorized` | 自动重新注册设备后重试一次 |
-| 413/400 | `bad_request` | Unable to analyze this conversation. |
-| 429 | `quota_exceeded` | 今日免费额度已用完 |
-| 502 | `upstream_error` / `refusal` / `invalid_output` | Unable to analyze this conversation. Try again. |
-| 504 | `timeout` | Unable to analyze this conversation. Try again. |
+| 401 | `unauthorized` | 登录令牌：刷新后重试一次；设备 token：重新注册后重试一次 |
+| 402 | `insufficient_credits` | `details.login_required = true`（匿名）→ "体验次数已用完，登录领取额度"；否则 → "积分已用完，查看账户 / 升级" |
+| 429 | `daily_cap` | 达到套餐每日上限 |
+| 429 | `rate_limited` / `quota_exceeded` | 请求太频繁 / 网络维度超限 |
+| 400 | `bad_request` | Unable to analyze this conversation. |
+| 502 / 504 | `upstream_error` / `refusal` / `invalid_output` / `timeout` | Unable to analyze this conversation. Try again. |
 | 网络失败 | — | Network unavailable. |
 
-### 5.2 设备鉴权（MVP 不做登录）
-- 客户端首次启动生成 UUID 作为 `device_id`。
-- 服务端签发 `token = base64url(device_id) + "." + HMAC_SHA256(TOKEN_SECRET, device_id)`，无状态校验。
-- 防滥用：同一 IP 每日最多注册 N 个设备（KV 计数）。
+### 5.2 用户系统总览
 
-### 5.3 额度
-- KV 键 `q:<device_id>:<YYYY-MM-DD>` 和 `ip:<ip>:<YYYY-MM-DD>`，TTL 2 天。
-- 默认每设备每天 `DAILY_QUOTA=30` 次，每 IP 每天 200 次（环境变量可配）。
-- KV 是最终一致的，作为软限制足够；以后需要精确计费时换 Durable Objects。
-- 只有成功（`status: ok`）的请求才扣额度。
+```text
+首次启动 ──► 匿名设备 token ──► 体验额度 10 次
+                                  │ 用完 / 主动登录
+                                  ▼
+               系统浏览器邮箱验证码登录（PKCE + 本机回调）
+                                  │ 设备绑定到账号
+                                  ▼
+                 免费：注册赠送 50 次（90 天）+ 每天 5 次
+                                  │ 升级（Stripe Checkout）
+                                  ▼
+                 Pro：每月 1000 次 / Pro+：每月 3000 次（均有每日上限）
+```
 
-### 5.4 隐私
-- 不写数据库、不记录请求和响应内容；日志只有 `request_id, device_hash, latency, tokens, model, result`。
+存储分工：
+- **D1**：users、devices、otp_codes、auth_codes、refresh_tokens、subscriptions、web_tickets、usage_events（只有元数据）。表结构见 `server/migrations/`。
+- **Durable Object `CreditAccount`**：每个积分账户一个实例（`u:<user_id>` 或 `d:<device_id>`），内置 SQLite 存积分桶、流水、预扣、当日用量。DO 内同步 SQL 串行执行，扣费原子。
+- **KV**：按 IP 的每日软限制计数。
+
+### 5.3 登录（RFC 8252）
+1. 桌面端开本机端口 `127.0.0.1:<随机>`，生成 `state` 和 PKCE `verifier / challenge`，用系统浏览器打开 `/auth/login?device_id&redirect_uri&state&code_challenge`。
+2. 登录页：输入邮箱 → 发送 6 位验证码（Resend；开发模式且未配置时直接显示在页面上）→ 校验。
+3. 服务端找到或创建用户（按规范化邮箱去重）、把设备绑定到账号、发放注册赠送，签发 5 分钟有效的一次性授权码，跳回 `redirect_uri?code&state`。**`redirect_uri` 只允许本机回环地址**。
+4. 桌面端校验 `state`，用授权码 + verifier 换取令牌：access token（JWT，15 分钟，只在内存）、refresh token（30 天，存系统凭据库，每次刷新都轮换）。
+5. 检测到已轮换的 refresh token 被再次使用 → 整条令牌链作废，强制重新登录。
+
+### 5.4 积分
+- **计费**：1 次成功回复 = 1 积分（`REPLY_COST`，以后可按模型加权）。
+- **分桶**：trial（体验，不过期）、bonus（注册赠送，90 天）、daily（免费用户每日补充，当天有效）、subscription（订阅周期 + 3 天宽限）、topup（预留）。**先扣最快过期的桶**。
+- **扣费流程**：`reserve`（预扣，同时检查频率和每日上限）→ 调用模型 → 成功且 `status=ok` 时 `commit`，否则 `release` 退还。超过 5 分钟未确认的预扣自动退还。
+- **幂等**：客户端每次分析生成一个 `Idempotency-Key`，网络重试（进行中或已完成）都不会重复扣费。
+- 套餐数值集中在 `server/src/credits/plans.ts`。
+
+### 5.5 订阅支付
+- 桌面端 `POST /v1/billing/link` 申请 10 分钟有效的一次性票据 → 系统浏览器打开 `/billing/checkout` → 跳转 Stripe Checkout。
+- Webhook：`invoice.paid` 按发票号幂等发放本周期积分；`customer.subscription.updated/deleted` 同步状态；`charge.refunded` / `charge.dispute.created` 收回订阅积分。
+- 套餐判定：订阅 `active` 或 `past_due` 且未超过周期结束 + 3 天 → 付费套餐，否则免费。
+- **开发模式**（`DEV_MODE=true` 且未配置 Stripe）：结账页变成"模拟支付"，管理订阅页可"到期后取消 / 立即结束"，用于本地完整测试。
+
+### 5.6 防刷
+| 层 | 规则 |
+|---|---|
+| 体验额度 | 同一硬件哈希（加盐 MachineGuid）只发一次；同一 IP 每天最多 3 台新设备 |
+| 注册 | 必须验证邮箱；拒绝一次性邮箱；邮箱规范化去重；可选 Turnstile；**每台设备、每个账号各只送一次注册赠送** |
+| 验证码 | 10 分钟有效、最多试 5 次、同一邮箱 1 分钟内不能重发、同一 IP 每天 10 次 |
+| 令牌 | access 15 分钟；refresh 绑定设备、每次轮换、重用即作废整条链；每账号最多 5 台设备 |
+| 请求 | 每账户每分钟 6 次、同时 2 个；套餐每日上限；同一 IP 每日上限 |
+| 支付 | Stripe Radar；退款 / 拒付收回积分 |
+
+### 5.7 隐私
+- 不存储截图和聊天内容；日志与 `usage_events` 只有 `request_id、账户、套餐、状态、模型、耗时、token 数`。
+- 账号只关联用量元数据；注销时删除个人数据。
 - 隐私政策写明：截图经服务端转发给 AI 服务商，不存储。
 
 ---
@@ -272,6 +317,8 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 | P0-3 | 中转服务、Prompt、结构化输出 | MVP 启动 |
 | P0-4 | Overlay、定位、复制、焦点还原 | MVP 启动 |
 | P1 | Settings 完整化、错误处理细化、混合 DPI 测试、改快捷键、开机启动、BYOK 隐藏选项 | |
+| 用户系统 1–2 | 匿名体验、邮箱登录、积分账户、注册赠送、订阅支付（Stripe / 开发模式模拟）、账户设置页 | 已实现，待联调 |
+| 用户系统 3–4 | 风控评分、手机验证、成本熔断；Google / Apple / 微信登录、国内支付 | |
 | P2 | 流式逐条显示、埋点上报、签名、自动更新、视觉打磨 | |
 
 ---
