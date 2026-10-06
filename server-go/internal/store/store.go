@@ -104,6 +104,16 @@ func Backup(ctx context.Context, db *sql.DB, dest string) error {
 	return err
 }
 
+// ResetIPCounters 清空按 IP 的每日计数。开发测试时所有请求都来自同一个 IP，很快会撞上每日上限；
+// 只影响限额计数，不碰账号和积分数据。
+func ResetIPCounters(ctx context.Context, db *sql.DB) (int64, error) {
+	res, err := db.ExecContext(ctx, `DELETE FROM ip_counters`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // Cleanup 删除过期的一次性数据（验证码、授权码、票据、IP 计数、过期很久的 refresh token）。
 func Cleanup(ctx context.Context, db *sql.DB, now time.Time) error {
 	ms := now.UnixMilli()

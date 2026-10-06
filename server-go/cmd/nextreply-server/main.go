@@ -4,6 +4,7 @@
 //	nextreply-server migrate    只执行数据库迁移
 //	nextreply-server backup F   把数据库快照写到文件 F（服务运行中也可执行）
 //	nextreply-server healthcheck  请求本机 /v1/health，供容器健康检查使用
+//	nextreply-server reset-limits 清空按 IP 的每日限额计数（开发测试用）
 package main
 
 import (
@@ -44,6 +45,14 @@ func main() {
 		}
 		err = withDB(func(ctx context.Context, _ *config.Config, db dbHandle) error {
 			return store.Backup(ctx, db, os.Args[2])
+		})
+	case "reset-limits":
+		err = withDB(func(ctx context.Context, _ *config.Config, db dbHandle) error {
+			n, err := store.ResetIPCounters(ctx, db)
+			if err == nil {
+				slog.Info("ip counters cleared", "rows", n)
+			}
+			return err
 		})
 	case "healthcheck":
 		err = healthcheck()

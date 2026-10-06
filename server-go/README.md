@@ -20,6 +20,7 @@ server-go/
 │   ├── store/              SQLite 打开、迁移（migrations/*.sql 内嵌进二进制）、备份、清理
 │   ├── config/             环境变量
 │   └── apierr/             错误码
+├── scripts/e2e-account.mjs  账户系统端到端测试（开发说明见 CLAUDE.md）
 ├── deploy/nginx.conf.example  宿主机 nginx 反向代理示例（Let's Encrypt）
 ├── Dockerfile
 ├── docker-compose.yml
