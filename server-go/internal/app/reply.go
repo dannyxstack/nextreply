@@ -90,7 +90,10 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	device := authn.DeviceHash(caller.DeviceID)
+	model := s.cfg.ModelFor(string(caller.Plan))
 	out, err := s.ai.Generate(ctx, ai.Input{
+		Model:       model.Model,
+		Effort:      model.Effort,
 		ImageBase64: image,
 		MediaType:   mediaType,
 		Locale:      optionalString(body, "locale", 20),
@@ -126,7 +129,7 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 	// 只记录元数据：不记录图片、聊天内容、回复内容
 	slog.Info("reply", "request_id", requestID, "device", device, "plan", caller.Plan, "status", out.Result.Status, "model", out.Model,
 		"fallback", out.FallbackUsed, "latency_ms", latency, "tokens_in", out.Usage.Input, "tokens_out", out.Usage.Output,
-		"cache_read", out.Usage.CacheRead, "client_version", optionalString(body, "client_version", 20))
+		"cache_read", out.Usage.CacheRead, "cache_write", out.Usage.CacheWrite, "client_version", optionalString(body, "client_version", 20))
 	creditsUsed := 0
 	if charged {
 		creditsUsed = credits.ReplyCost

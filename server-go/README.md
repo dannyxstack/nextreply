@@ -4,6 +4,7 @@
 接口与旧版 Cloudflare Workers 服务（已从仓库删除，见 git 历史）完全一致，桌面端不需要改动。
 
 - 单个静态二进制 + 单个 SQLite 文件，`docker compose up` 即可部署
+- 服务只提供 HTTP，不处理证书；HTTPS 交给 Cloudflare Tunnel 或宿主机 nginx（见下文「HTTPS」）
 - 截图只在内存中处理；日志和数据库只记录元数据（请求 ID、账户、套餐、状态、模型、耗时、token 数）
 
 ## 目录
@@ -19,7 +20,7 @@ server-go/
 │   ├── store/              SQLite 打开、迁移（migrations/*.sql 内嵌进二进制）、备份、清理
 │   ├── config/             环境变量
 │   └── apierr/             错误码
-├── deploy/Caddyfile        HTTPS 反向代理
+├── deploy/nginx.conf.example  宿主机 nginx 反向代理示例（Let's Encrypt）
 ├── Dockerfile
 ├── docker-compose.yml
 └── .env.example
@@ -46,8 +47,6 @@ DEV_MODE=true MOCK_AI=true TOKEN_SECRET=dev-secret-change-me PUBLIC_URL=http://1
 ### 1. 准备服务器
 
 - 一台 Linux 服务器，装好 Docker 和 Docker Compose 插件
-- 一个域名，A/AAAA 记录指向服务器
-- 防火墙放行 80、443（Caddy 用 80 端口完成证书验证）
 - 服务器需要能访问 `api.anthropic.com`（以及配置了的 Resend、Stripe）
 
 ### 2. 配置
@@ -57,29 +56,57 @@ git clone <repo> && cd <repo>/server-go
 cp .env.example .env
 openssl rand -base64 48      # 生成 TOKEN_SECRET
 vim .env
+chmod 600 .env               # 里面有密钥
 ```
 
-至少需要填：`DOMAIN`、`PUBLIC_URL`、`ANTHROPIC_API_KEY`、`TOKEN_SECRET`、`RESEND_API_KEY`、`EMAIL_FROM`。
-`.env` 里有密钥，权限设为只有自己可读：`chmod 600 .env`。
+至少需要填：`PUBLIC_URL`、`ANTHROPIC_API_KEY`、`TOKEN_SECRET`、`RESEND_API_KEY`、`EMAIL_FROM`。
 
 ### 3. 启动
 
 ```bash
 docker compose up -d --build
-docker compose ps                         # server 应为 healthy
-curl https://<DOMAIN>/v1/health           # {"ok":true,"model":"..."}
+docker compose ps                             # server 应为 healthy
+curl http://127.0.0.1:8787/v1/health          # {"ok":true,"model":"..."}
 ```
+
+如果 `server` 一直不是 healthy，通常是配置有误导致服务启动即退出，用 `docker compose logs server` 查看原因，
+例如 `TOKEN_SECRET is required`、`RESEND_API_KEY is required when DEV_MODE is off`。
 
 国内服务器构建镜像时拉 Go 依赖较慢，在 `.env` 里加 `GOPROXY=https://goproxy.cn,direct`。
 
-### 4. 桌面端
+### 4. HTTPS
 
-在桌面端 Settings 里把服务端地址设为 `https://<DOMAIN>`。
+服务本身只监听 HTTP（默认只绑定本机 `127.0.0.1:8787`），HTTPS 由外部负责，三种场景任选：
 
-### 5. Stripe（可选）
+| 场景 | 做法 | `.env` |
+|---|---|---|
+| **生产：Cloudflare（推荐）** | Cloudflare Tunnel 转发到本机服务，证书由 Cloudflare 管理，服务器不用开放任何入站端口 | `CLIENT_IP_HEADER=CF-Connecting-IP` |
+| **生产：Let's Encrypt** | 宿主机 nginx + certbot 负责证书，转发到本机服务 | `CLIENT_IP_HEADER=X-Real-IP` |
+| **测试机** | 不用 HTTPS，局域网直接访问 | `BIND_ADDR=0.0.0.0`，`PUBLIC_URL=http://<机器 IP>:8787` |
+
+**Cloudflare Tunnel**
+
+1. 域名托管在 Cloudflare。在 Cloudflare Zero Trust 控制台 → Networks → Tunnels 创建一个 Tunnel，
+   按提示在服务器上安装 `cloudflared` 并用 token 注册为系统服务
+2. 给 Tunnel 添加 Public Hostname：`api.example.com` → `http://localhost:8787`
+3. `.env` 中 `PUBLIC_URL=https://api.example.com`、`CLIENT_IP_HEADER=CF-Connecting-IP`，然后 `docker compose up -d`
+
+服务只绑定本机，外部请求只能经过 Tunnel 进来，`CF-Connecting-IP` 无法被伪造。
+不要用 Cloudflare 代理（橙色云）+「Flexible」SSL 直连源站：Cloudflare 到服务器这一段是明文。
+
+**nginx + Let's Encrypt**
+
+按 [deploy/nginx.conf.example](deploy/nginx.conf.example) 配置站点，再执行 `certbot --nginx` 申请证书（自动续期）。
+示例里的 `proxy_request_buffering off` 不能去掉：nginx 默认会把较大的请求体写进磁盘临时文件，截图会因此落盘。
+
+### 5. 桌面端
+
+在桌面端 Settings 里把服务端地址设为 `PUBLIC_URL` 的值。
+
+### 6. Stripe（可选）
 
 1. Stripe 后台创建两个按月订阅的价格，把 ID 填到 `STRIPE_PRICE_PRO`、`STRIPE_PRICE_PRO_PLUS`
-2. 添加 Webhook 端点 `https://<DOMAIN>/billing/webhook`，**API 版本选 `2025-03-31.basil` 或更新**，订阅以下事件：
+2. 添加 Webhook 端点 `<PUBLIC_URL>/billing/webhook`（必须是 HTTPS），**API 版本选 `2025-03-31.basil` 或更新**，订阅以下事件：
    `checkout.session.completed`、`invoice.paid`、`customer.subscription.updated`、`customer.subscription.deleted`、`charge.refunded`、`charge.dispute.created`
 3. 把签名密钥填到 `STRIPE_WEBHOOK_SECRET`，`STRIPE_SECRET_KEY` 填 API 密钥，然后 `docker compose up -d`
 4. 在 Stripe 后台开启客户门户（Customer portal），用户才能自助管理订阅
@@ -117,13 +144,13 @@ docker compose exec server /nextreply-server backup /backups/nextreply-$(date +%
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `DOMAIN` | — | Caddy 申请证书用的域名（只在 compose 中使用） |
 | `PUBLIC_URL` | `http://127.0.0.1:8787` | 对外地址，用于生成登录 / 结账链接 |
 | `ANTHROPIC_API_KEY` | — | Claude API 密钥 |
 | `TOKEN_SECRET` | — | 令牌签名密钥；非开发模式至少 32 个字符 |
 | `RESEND_API_KEY` / `EMAIL_FROM` | — | 登录验证码邮件；非开发模式必填 |
-| `MODEL` | `claude-opus-5-5` | 可换成 `claude-sonnet-5-5`、`claude-haiku-4-5` |
-| `EFFORT` | `low` | `low`…`max`；`none` 表示不传（Haiku 4.5） |
+| `MODEL` / `EFFORT` | `claude-opus-5-5` / `low` | 付费用户（pro、pro_plus）的模型 |
+| `MODEL_FREE` / `EFFORT_FREE` | `claude-sonnet-5` / 同 `EFFORT` | 免费用户（trial 匿名体验、free 已登录未订阅）的模型 |
+| `MODEL_<PLAN>` / `EFFORT_<PLAN>` | — | 单个套餐覆盖，`<PLAN>` 为 `TRIAL`、`FREE`、`PRO`、`PRO_PLUS`。可选模型如 `claude-opus-5-5`、`claude-sonnet-5`、`claude-haiku-4-5`；effort 为 `low`…`max`，`none` 表示不传，Haiku 自动不传 |
 | `THINKING` | `auto` | `auto` 不传；`adaptive`；`between_tools` |
 | `FALLBACKS` | `default` | 拒答时服务端自动换模型；`off` 关闭 |
 | `MAX_TOKENS` | `8000` | 包含 thinking |
@@ -133,7 +160,8 @@ docker compose exec server /nextreply-server backup /backups/nextreply-$(date +%
 | `STRIPE_*` | — | 订阅支付（可选） |
 | `DEV_MODE` | `false` | 开发模式；**线上必须为 false** |
 | `MOCK_AI` | `false` | 开发模式下不调用模型 |
-| `CLIENT_IP_HEADER` | 空 | 从哪个请求头取客户端 IP；compose 中设为 `X-Real-IP`。**只有在代理会覆盖该请求头时才能设置**，否则可被伪造 |
+| `CLIENT_IP_HEADER` | 空 | 从哪个请求头取客户端 IP：Cloudflare 用 `CF-Connecting-IP`，nginx 用 `X-Real-IP`，直连留空。**只有在请求一定经过会覆盖该请求头的代理时才能设置**，否则可被伪造 |
+| `BIND_ADDR` / `PORT` | `127.0.0.1` / `8787` | 宿主机上的监听地址和端口（只在 compose 中使用） |
 | `LISTEN_ADDR` | `:8787` | 监听地址 |
 | `DATABASE_PATH` | `./data/nextreply.db` | SQLite 文件；容器中为 `/data/nextreply.db` |
 
@@ -141,9 +169,9 @@ docker compose exec server /nextreply-server backup /backups/nextreply-$(date +%
 
 - **单实例**：积分扣减用进程内互斥锁 + SQLite 事务保证原子性，所以只能跑一个 `server` 容器。
   需要多实例时，把 `credits` 和 `store` 换成 Postgres（行锁）+ Redis（限流计数）。
-- **隐私**：Caddy 流式转发请求体，不会把截图写入磁盘临时文件；如果改用 Nginx，必须设置
-  `proxy_request_buffering off` 或足够大的 `client_body_buffer_size`，否则大请求体会落盘。
-  Caddy 未开启访问日志（结账链接的 URL 里有一次性票据）。
+- **不处理证书**：TLS 在服务外部终止（Cloudflare / nginx），服务保持简单，换部署方式不用改代码。
+- **隐私**：截图只在服务内存中处理。前置的 nginx 必须关闭请求缓冲（见上），并关闭访问日志（结账链接的 URL 里有一次性票据）。
+  使用 Cloudflare 时截图会经过 Cloudflare 解密后转发，隐私政策中需要写明。
 - **后台任务**：每 10 分钟清理过期的验证码、授权码、票据、IP 计数，并退还超过 5 分钟未确认的积分预扣。
 
 ## 接口

@@ -15,14 +15,15 @@ import (
 
 type Settings struct {
 	APIKey    string
-	Model     string
-	Effort    string
 	Thinking  string
 	Fallbacks string
 	MaxTokens int64
 }
 
 type Input struct {
+	// 本次请求使用的模型和 effort（按用户套餐选择）
+	Model       string
+	Effort      string
 	ImageBase64 string
 	MediaType   string
 	Locale      string
@@ -30,9 +31,10 @@ type Input struct {
 }
 
 type Usage struct {
-	Input     int64
-	Output    int64
-	CacheRead int64
+	Input      int64
+	Output     int64
+	CacheRead  int64
+	CacheWrite int64
 }
 
 type Output struct {
@@ -48,7 +50,7 @@ type Generator interface {
 }
 
 // 服务端 fallbacks: "default" 只在这些模型上可用
-var fallbackModels = map[string]bool{"claude-fable-5-1": true, "claude-opus-5-5": true, "claude-opus-5": true, "claude-sonnet-5-5": true}
+var fallbackModels = map[string]bool{"claude-fable-5-1": true, "claude-opus-5-5": true, "claude-opus-5": true}
 
 var efforts = map[string]bool{"low": true, "medium": true, "high": true, "xhigh": true, "max": true}
 
@@ -60,9 +62,6 @@ type Claude struct {
 }
 
 func NewClaude(s Settings) *Claude {
-	if s.Model == "" {
-		s.Model = "claude-opus-5-5"
-	}
 	return &Claude{
 		s: s,
 		client: anthropic.NewClient(
@@ -75,7 +74,7 @@ func NewClaude(s Settings) *Claude {
 
 func (c *Claude) params(in Input) anthropic.BetaMessageNewParams {
 	p := anthropic.BetaMessageNewParams{
-		Model:     anthropic.Model(c.s.Model),
+		Model:     anthropic.Model(in.Model),
 		MaxTokens: c.s.MaxTokens,
 		System: []anthropic.BetaTextBlockParam{{
 			Text:         SystemPrompt,
@@ -94,9 +93,9 @@ func (c *Claude) params(in Input) anthropic.BetaMessageNewParams {
 			Format: anthropic.BetaJSONOutputFormatParam{Schema: ReplyJSONSchema},
 		},
 	}
-	// "none" 或空：不传（Haiku 4.5 不支持 effort）
-	if efforts[c.s.Effort] {
-		p.OutputConfig.Effort = anthropic.BetaOutputConfigEffort(c.s.Effort)
+	// "none" 或空：不传；Haiku 不支持 effort，传了会被拒绝
+	if efforts[in.Effort] && !strings.HasPrefix(in.Model, "claude-haiku") {
+		p.OutputConfig.Effort = anthropic.BetaOutputConfigEffort(in.Effort)
 	}
 	switch c.s.Thinking {
 	case "between_tools":
@@ -107,7 +106,7 @@ func (c *Claude) params(in Input) anthropic.BetaMessageNewParams {
 		// auto：不传，由模型默认行为决定
 	}
 	// 拒答兜底：在支持的模型上由服务端按拒答类别自动换模型重试
-	if c.s.Fallbacks != "off" && fallbackModels[c.s.Model] {
+	if c.s.Fallbacks != "off" && fallbackModels[in.Model] {
 		p.Betas = []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01}
 		p.Fallbacks = anthropic.BetaFallbacksParamOfDefault()
 	}
@@ -151,9 +150,12 @@ func (c *Claude) Generate(ctx context.Context, in Input) (*Output, error) {
 		}
 	}
 	return &Output{
-		Result:       result,
-		Model:        string(msg.Model),
-		Usage:        Usage{Input: msg.Usage.InputTokens, Output: msg.Usage.OutputTokens, CacheRead: msg.Usage.CacheReadInputTokens},
+		Result: result,
+		Model:  string(msg.Model),
+		Usage: Usage{
+			Input: msg.Usage.InputTokens, Output: msg.Usage.OutputTokens,
+			CacheRead: msg.Usage.CacheReadInputTokens, CacheWrite: msg.Usage.CacheCreationInputTokens,
+		},
 		FallbackUsed: fallbackUsed,
 	}, nil
 }

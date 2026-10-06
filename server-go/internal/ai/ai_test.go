@@ -39,8 +39,8 @@ func TestParseResult(t *testing.T) {
 }
 
 func TestParamsShape(t *testing.T) {
-	c := NewClaude(Settings{APIKey: "x", Model: "claude-opus-5-5", Effort: "low", Fallbacks: "default", MaxTokens: 8000})
-	b, err := json.Marshal(c.params(Input{ImageBase64: "aGk=", MediaType: "image/jpeg", Locale: "zh-CN"}))
+	c := NewClaude(Settings{APIKey: "x", Fallbacks: "default", MaxTokens: 8000})
+	b, err := json.Marshal(c.params(Input{Model: "claude-opus-5-5", Effort: "low", ImageBase64: "aGk=", MediaType: "image/jpeg", Locale: "zh-CN"}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,10 +61,13 @@ func TestParamsShape(t *testing.T) {
 		t.Fatal("system prompt should be cached")
 	}
 
-	// 不支持服务端兜底的模型不发 fallbacks；effort 为 none 时不传
-	c = NewClaude(Settings{APIKey: "x", Model: "claude-haiku-4-5", Effort: "none", Fallbacks: "default", MaxTokens: 8000})
-	b, _ = json.Marshal(c.params(Input{ImageBase64: "aGk=", MediaType: "image/png"}))
-	if strings.Contains(string(b), `"fallbacks"`) || strings.Contains(string(b), `"effort"`) {
+	// 不支持服务端兜底的模型不发 fallbacks；Haiku 即使配置了 effort 也不传
+	b, _ = json.Marshal(c.params(Input{Model: "claude-haiku-4-5", Effort: "low", ImageBase64: "aGk=", MediaType: "image/png"}))
+	if strings.Contains(string(b), `"fallbacks"`) || strings.Contains(string(b), `"effort"`) || !strings.Contains(string(b), `"claude-haiku-4-5"`) {
+		t.Fatal(string(b))
+	}
+	b, _ = json.Marshal(c.params(Input{Model: "claude-sonnet-5", Effort: "low", ImageBase64: "aGk=", MediaType: "image/png"}))
+	if strings.Contains(string(b), `"fallbacks"`) || !strings.Contains(string(b), `"effort":"low"`) {
 		t.Fatal(string(b))
 	}
 }

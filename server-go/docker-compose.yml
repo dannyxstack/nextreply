@@ -1,9 +1,10 @@
-# NextReply 服务端部署：server（Go 服务 + SQLite）+ caddy（HTTPS 反向代理，自动申请证书）
+# NextReply 服务端部署：单个 Go 服务 + SQLite。
 #
 #   cp .env.example .env    # 填写配置
 #   docker compose up -d --build
 #
-# 详见 README.md。
+# 服务本身只提供 HTTP；HTTPS 由 Cloudflare Tunnel 或宿主机上的 nginx（Let's Encrypt）负责。
+# 测试环境可以直接用 HTTP。详见 README.md。
 
 services:
   server:
@@ -17,36 +18,15 @@ services:
     environment:
       LISTEN_ADDR: ":8787"
       DATABASE_PATH: /data/nextreply.db
-      # Caddy 会用真实的对端地址覆盖这个请求头，客户端无法伪造
-      CLIENT_IP_HEADER: X-Real-IP
+      # 缺少时服务会启动即退出；在这里提前检查，让 docker compose up 直接报出原因
+      TOKEN_SECRET: ${TOKEN_SECRET:?请在 .env 中设置 TOKEN_SECRET，可用 openssl rand -base64 48 生成}
     volumes:
       - data:/data
       - ./backups:/backups
-    # 只绑定本机，便于在服务器上调试（curl 127.0.0.1:8787/v1/health）；公网流量走 caddy
+    # 默认只对本机开放：生产环境由 Cloudflare Tunnel / nginx 在本机转发过来，不直接暴露服务。
+    # 测试机需要局域网访问时在 .env 中设置 BIND_ADDR=0.0.0.0
     ports:
-      - "127.0.0.1:8787:8787"
-    logging:
-      driver: json-file
-      options:
-        max-size: "20m"
-        max-file: "5"
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    depends_on:
-      server:
-        condition: service_healthy
-    environment:
-      DOMAIN: ${DOMAIN:?请在 .env 中设置 DOMAIN}
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-8787}:8787"
     logging:
       driver: json-file
       options:
@@ -55,5 +35,3 @@ services:
 
 volumes:
   data:
-  caddy_data:
-  caddy_config:

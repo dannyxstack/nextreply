@@ -30,13 +30,15 @@ import (
 const deviceID = "3f1c2b7e-9d4a-4c1e-8b2a-6f5d4e3c2b1a"
 
 type fakeAI struct {
-	status ai.Status
-	err    error
-	calls  int
+	status    ai.Status
+	err       error
+	calls     int
+	lastModel string
 }
 
 func (f *fakeAI) Generate(ctx context.Context, in ai.Input) (*ai.Output, error) {
 	f.calls++
+	f.lastModel = in.Model
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -548,5 +550,23 @@ func TestNormalizeEmailAndPlan(t *testing.T) {
 		planFromSubscription(sub("canceled", now+day), now) != credits.PlanFree ||
 		planFromSubscription(sub("active", now-10*day), now) != credits.PlanFree {
 		t.Fatal("free plan expected")
+	}
+}
+
+func TestModelPerPlan(t *testing.T) {
+	h := newHarness(t, func(c *config.Config) {
+		c.PlanModels = map[string]config.ModelChoice{
+			"trial": {Model: "cheap-trial"}, "free": {Model: "cheap-free"}, "pro": {Model: "premium"},
+		}
+	})
+	token := h.register(deviceID)
+	h.do("POST", "/v1/reply", token, replyBody)
+	if h.ai.lastModel != "cheap-trial" {
+		t.Fatal("trial used", h.ai.lastModel)
+	}
+	access := h.login("plans@example.com", deviceID)["access_token"].(string)
+	h.do("POST", "/v1/reply", access, replyBody)
+	if h.ai.lastModel != "cheap-free" {
+		t.Fatal("free used", h.ai.lastModel)
 	}
 }

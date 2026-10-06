@@ -14,7 +14,7 @@
 | UI | **React 18 + TypeScript + Vite** | 三个轻量页面：框选（selector）、回复卡片（overlay）、设置（settings） |
 | 中转服务 | **Go（标准库 net/http）** | 单个静态二进制，Linux 上用 Docker Compose 部署；用官方 `anthropic-sdk-go` 调用 Claude |
 | 存储 | **SQLite**（`modernc.org/sqlite`，纯 Go） | 账号、积分、订阅、限额计数都在一个文件里；单实例部署 |
-| 反向代理 | **Caddy** | 自动 HTTPS；流式转发请求体，截图不落盘 |
+| HTTPS | **Cloudflare Tunnel** 或宿主机 **nginx + Let's Encrypt** | 服务本身只提供 HTTP、不处理证书；nginx 必须关闭请求缓冲，截图不落盘 |
 | 模型 | 默认 `claude-opus-5-5`（effort `low`），可通过环境变量切换 | 见 §6 |
 
 **原则**
@@ -61,7 +61,7 @@ cc-nextreply/
     │   ├── credits/              # 套餐、分桶分配、预扣/确认/退还
     │   ├── authn/                # 设备 token、JWT、PKCE
     │   └── store/                # SQLite、迁移（migrations/*.sql）、备份
-    ├── Dockerfile · docker-compose.yml · deploy/Caddyfile
+    ├── Dockerfile · docker-compose.yml · deploy/nginx.conf.example
 ```
 
 ---
@@ -78,7 +78,7 @@ cc-nextreply/
 └────────────────────────────────────┬─────────────────────────────────────────┘
                                      │ HTTPS  POST /v1/reply (JPEG base64)
 ┌────────────────────────────────────▼─────────────────────────────────────────┐
-│ Server (Go, Docker Compose: caddy → server, SQLite)                          │
+│ Server (Go + SQLite, Docker Compose；HTTPS 由 Cloudflare / nginx 终止)        │
 │  auth → IP 限额 → 积分预扣 → prompt + schema → Claude → 校验 → 确认/退还     │
 │  只记录元数据（延迟、token、模型、错误码），不记录图片和文字                  │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -277,10 +277,12 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `MODEL` | `claude-opus-5-5` | 可改为 `claude-sonnet-5-5` / `claude-haiku-4-5` |
+| `MODEL` | `claude-opus-5-5` | 付费用户（pro / pro_plus）使用的模型 |
+| `MODEL_FREE` | `claude-sonnet-5` | 免费用户（trial / free）使用的模型；可选 `claude-haiku-4-5` 等 |
+| `MODEL_<PLAN>` / `EFFORT_<PLAN>` | — | 按单个套餐覆盖模型和 effort |
 | `EFFORT` | `low` | Opus 5.5 不能关闭 thinking，用 `low` 压低延迟 |
-| `THINKING` | `auto` | `auto`：Opus 不传；Sonnet 5.5 可设 `between_tools`（等同关闭思考）；Haiku 不传 |
-| `FALLBACKS` | `default` | `off` 关闭 |
+| `THINKING` | `auto` | `auto`：不传（所有套餐共用）；`adaptive`、`between_tools` 可选 |
+| `FALLBACKS` | `default` | 拒答时服务端换模型重试，只对 Opus 5 / 5.5、Fable 5.1 生效；`off` 关闭 |
 | `MAX_TOKENS` | `8000` | 包含 thinking |
 
 上线前用 20–30 张真实截图测三种配置的延迟和质量，再确定默认值。
@@ -318,7 +320,7 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 | P0-4 | Overlay、定位、复制、焦点还原 | MVP 启动 |
 | P1 | Settings 完整化、错误处理细化、混合 DPI 测试、改快捷键、开机启动、BYOK 隐藏选项 | |
 | 用户系统 1–2 | 匿名体验、邮箱登录、积分账户、注册赠送、订阅支付（Stripe / 开发模式模拟）、账户设置页 | 已实现，待联调 |
-| 服务端 Go 重写 | 接口不变；SQLite 替代 D1 / Durable Object / KV；Docker Compose + Caddy 部署 | 已实现，待联调 |
+| 服务端 Go 重写 | 接口不变；SQLite 替代 D1 / Durable Object / KV；Docker Compose 部署，HTTPS 由 Cloudflare Tunnel / nginx 负责 | 已实现，待联调 |
 | 用户系统 3–4 | 风控评分、手机验证、成本熔断；Google / Apple / 微信登录、国内支付 | |
 | P2 | 流式逐条显示、埋点上报、签名、自动更新、视觉打磨 | |
 

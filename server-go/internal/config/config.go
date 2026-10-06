@@ -15,11 +15,14 @@ type Config struct {
 	AnthropicAPIKey string
 	TokenSecret     string
 
-	Model     string
-	Effort    string
-	Thinking  string
-	Fallbacks string
-	MaxTokens int64
+	// 付费套餐的默认模型和 effort
+	Model  string
+	Effort string
+	// 每个套餐实际使用的模型（见 ModelFor）
+	PlanModels map[string]ModelChoice
+	Thinking   string
+	Fallbacks  string
+	MaxTokens  int64
 
 	IPDailyQuota  int
 	RegisterPerIP int
@@ -72,7 +75,30 @@ func FromEnv() (*Config, error) {
 		StripePriceProPlus:  os.Getenv("STRIPE_PRICE_PRO_PLUS"),
 	}
 	c.MockAI = c.DevMode && os.Getenv("MOCK_AI") == "true"
+
+	// 免费用户（trial 匿名体验 + free 已登录未订阅）默认用更便宜的模型；付费用户用 MODEL。
+	// 每个套餐还可以用 MODEL_<PLAN> / EFFORT_<PLAN> 单独覆盖。
+	paid := ModelChoice{Model: c.Model, Effort: c.Effort}
+	free := ModelChoice{Model: env("MODEL_FREE", "claude-sonnet-5"), Effort: env("EFFORT_FREE", c.Effort)}
+	c.PlanModels = map[string]ModelChoice{}
+	for plan, base := range map[string]ModelChoice{"trial": free, "free": free, "pro": paid, "pro_plus": paid} {
+		suffix := strings.ToUpper(plan)
+		c.PlanModels[plan] = ModelChoice{Model: env("MODEL_"+suffix, base.Model), Effort: env("EFFORT_"+suffix, base.Effort)}
+	}
 	return c, c.validate()
+}
+
+type ModelChoice struct {
+	Model  string
+	Effort string
+}
+
+// ModelFor 返回某个套餐使用的模型；未知套餐按付费默认值处理。
+func (c *Config) ModelFor(plan string) ModelChoice {
+	if m, ok := c.PlanModels[plan]; ok {
+		return m
+	}
+	return ModelChoice{Model: c.Model, Effort: c.Effort}
 }
 
 func (c *Config) validate() error {

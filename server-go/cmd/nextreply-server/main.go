@@ -81,8 +81,7 @@ func serve() error {
 			gen = ai.Mock{}
 		} else {
 			gen = ai.NewClaude(ai.Settings{
-				APIKey: cfg.AnthropicAPIKey, Model: cfg.Model, Effort: cfg.Effort,
-				Thinking: cfg.Thinking, Fallbacks: cfg.Fallbacks, MaxTokens: cfg.MaxTokens,
+				APIKey: cfg.AnthropicAPIKey, Thinking: cfg.Thinking, Fallbacks: cfg.Fallbacks, MaxTokens: cfg.MaxTokens,
 			})
 		}
 		if cfg.AnthropicAPIKey == "" && !cfg.MockAI {
@@ -108,7 +107,9 @@ func serve() error {
 		}
 		errCh := make(chan error, 1)
 		go func() {
-			slog.Info("listening", "addr", cfg.ListenAddr, "model", cfg.Model, "db", cfg.DatabasePath)
+			slog.Info("listening", "addr", cfg.ListenAddr, "db", cfg.DatabasePath,
+				"model_trial", cfg.ModelFor("trial").Model, "model_free", cfg.ModelFor("free").Model,
+				"model_pro", cfg.ModelFor("pro").Model, "model_pro_plus", cfg.ModelFor("pro_plus").Model)
 			errCh <- httpSrv.ListenAndServe()
 		}()
 		select {
