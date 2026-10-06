@@ -17,29 +17,38 @@ import (
 	"github.com/nextreply/server/internal/apierr"
 	"github.com/nextreply/server/internal/config"
 	"github.com/nextreply/server/internal/credits"
+	"github.com/nextreply/server/internal/settings"
 )
 
 type Server struct {
-	cfg     *config.Config
-	db      *sql.DB
-	credits *credits.Service
-	ai      ai.Generator
-	http    *http.Client
-	now     func() time.Time
+	cfg      *config.Config
+	db       *sql.DB
+	credits  *credits.Service
+	settings *settings.Store
+	ai       ai.Generator
+	http     *http.Client
+	now      func() time.Time
 }
 
 func New(cfg *config.Config, db *sql.DB, gen ai.Generator) *Server {
+	st := settings.New(db, cfg)
+	// 读不到后台配置时用默认值继续运行（表由迁移创建，正常不会失败）
+	if err := st.Load(context.Background()); err != nil {
+		slog.Error("load settings failed, using defaults", "err", err.Error())
+	}
 	return &Server{
-		cfg:     cfg,
-		db:      db,
-		credits: credits.NewService(db),
-		ai:      gen,
-		http:    &http.Client{Timeout: 15 * time.Second},
-		now:     time.Now,
+		cfg:      cfg,
+		db:       db,
+		credits:  credits.NewService(db),
+		settings: st,
+		ai:       gen,
+		http:     &http.Client{Timeout: 15 * time.Second},
+		now:      time.Now,
 	}
 }
 
 func (s *Server) Credits() *credits.Service { return s.credits }
+func (s *Server) Settings() *settings.Store { return s.settings }
 
 // 请求体上限。截图 base64 后约 6MB，对应 ~4.5MB 原图；客户端缩图后通常只有几百 KB
 const (

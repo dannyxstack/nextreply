@@ -1,6 +1,9 @@
 package ai
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // 每百万 token 的美元价格，用于后台估算成本；实际账单以 Anthropic Console 为准。
 // 缓存写入按 5 分钟 TTL（输入价的 1.25 倍）计。价格调整时更新这里。
@@ -30,4 +33,14 @@ func CostMicros(model string, u Usage) int64 {
 	// 价格是"美元 / 百万 token"，乘以 token 数正好得到百万分之一美元
 	cost := float64(u.Input)*p.input + float64(u.Output)*p.output + float64(u.CacheWrite)*p.cacheWrite + float64(u.CacheRead)*p.cacheRead
 	return int64(cost + 0.5)
+}
+
+// KnownModels 有价目的模型，管理后台只允许在这些模型之间切换（防止手误填错模型名导致线上全部失败）。
+func KnownModels() []string {
+	out := make([]string, 0, len(prices))
+	for m := range prices {
+		out = append(out, m)
+	}
+	sort.Strings(out)
+	return out
 }

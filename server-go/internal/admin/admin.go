@@ -21,24 +21,26 @@ import (
 
 	"github.com/nextreply/server/internal/config"
 	"github.com/nextreply/server/internal/credits"
+	"github.com/nextreply/server/internal/settings"
 )
 
 //go:embed templates/*.html
 var templateFS embed.FS
 
 type Admin struct {
-	db      *sql.DB
-	cfg     *config.Config
-	credits *credits.Service
+	db       *sql.DB
+	cfg      *config.Config
+	credits  *credits.Service
+	settings *settings.Store
 	// 每次启动随机生成的 CSRF 令牌（见 checkCSRF）；重启后旧页面上的表单需要刷新
 	csrf     string
-	ipLimits map[string]int
+	ipLimits func() map[string]int
 	loc      *time.Location
 	now      func() time.Time
 	pages    map[string]*template.Template
 }
 
-func New(cfg *config.Config, db *sql.DB, svc *credits.Service, ipLimits map[string]int) (*Admin, error) {
+func New(cfg *config.Config, db *sql.DB, svc *credits.Service, st *settings.Store, ipLimits func() map[string]int) (*Admin, error) {
 	loc, err := time.LoadLocation(cfg.AdminTZ)
 	if err != nil {
 		return nil, fmt.Errorf("ADMIN_TZ: %w", err)
@@ -47,7 +49,7 @@ func New(cfg *config.Config, db *sql.DB, svc *credits.Service, ipLimits map[stri
 	if _, err := rand.Read(buf); err != nil {
 		return nil, err
 	}
-	a := &Admin{db: db, cfg: cfg, credits: svc, csrf: hex.EncodeToString(buf), ipLimits: ipLimits, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
+	a := &Admin{db: db, cfg: cfg, credits: svc, settings: st, csrf: hex.EncodeToString(buf), ipLimits: ipLimits, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
 	funcs := template.FuncMap{
 		"time":      a.fmtTime,
 		"usd":       fmtUSD,
@@ -61,6 +63,7 @@ func New(cfg *config.Config, db *sql.DB, svc *credits.Service, ipLimits map[stri
 		"csrf":      func() string { return a.csrf },
 		"action":    actionLabel,
 		"hasPrefix": strings.HasPrefix,
+		"pct64":     func(part, total int64) string { return fmtPct(int(part), int(total)) },
 		"itoa":      strconv.Itoa,
 		"div": func(a int64, b int) int64 {
 			if b == 0 {
@@ -69,7 +72,7 @@ func New(cfg *config.Config, db *sql.DB, svc *credits.Service, ipLimits map[stri
 			return a / int64(b)
 		},
 	}
-	for _, name := range []string{"overview", "accounts", "account", "limits", "audit"} {
+	for _, name := range []string{"overview", "accounts", "account", "limits", "audit", "settings"} {
 		t, err := template.New("layout.html").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html")
 		if err != nil {
 			return nil, err
@@ -92,6 +95,9 @@ func (a *Admin) Handler() http.Handler {
 		rows, err := a.auditRows(r.Context(), target, 200)
 		return AuditPage{Target: target, Rows: rows}, err
 	}))
+
+	mux.HandleFunc("GET /settings", a.page("settings", a.settingsData))
+	mux.HandleFunc("POST /settings", a.action("update_settings", a.updateSettings))
 
 	mux.HandleFunc("POST /accounts/{kind}/{id}/grant", a.action("grant_credits", a.grantCredits))
 	mux.HandleFunc("POST /accounts/u/{id}/suspend", a.action("suspend_user", a.setUserStatus("suspended")))
@@ -137,7 +143,7 @@ type pageData struct {
 }
 
 func (a *Admin) page(name string, load func(*http.Request) (any, error)) http.HandlerFunc {
-	titles := map[string]string{"overview": "概览", "accounts": "账户", "account": "账户详情", "limits": "限额与风控", "audit": "操作审计"}
+	titles := map[string]string{"overview": "概览", "accounts": "账户", "account": "账户详情", "limits": "限额与风控", "audit": "操作审计", "settings": "运行配置"}
 	nav := map[string]string{"account": "accounts"}
 	return func(w http.ResponseWriter, r *http.Request) {
 		data, err := load(r)
@@ -265,7 +271,7 @@ func planLabel(p any) string {
 func actionLabel(action string) string {
 	labels := map[string]string{
 		"grant_credits": "补发积分", "suspend_user": "停用账号", "restore_user": "恢复账号",
-		"revoke_sessions": "强制下线", "unbind_device": "解绑设备",
+		"revoke_sessions": "强制下线", "unbind_device": "解绑设备", "update_settings": "修改配置",
 	}
 	if l, ok := labels[action]; ok {
 		return l

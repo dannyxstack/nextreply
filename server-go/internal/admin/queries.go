@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nextreply/server/internal/credits"
+	"github.com/nextreply/server/internal/settings"
 )
 
 // ---------- 概览 ----------
@@ -58,6 +59,8 @@ type Overview struct {
 	Days          []DayStats
 	Subscriptions []NameCount
 	PlanModels    []PlanModel
+	CostCap       settings.CostCap
+	TrialEnabled  bool
 }
 
 type PlanModel struct {
@@ -95,7 +98,7 @@ func (a *Admin) windowStats(ctx context.Context, since int64) (WindowStats, erro
 	rows.Close()
 
 	// 耗时只看成功生成回复的请求；量不大，直接在内存里算分位数
-	lats, err := queryInts(ctx, a.db, `SELECT latency_ms FROM usage_events WHERE created_at >= ? AND status = 'ok' ORDER BY latency_ms`, since)
+	lats, err := queryInts(ctx, a.db, `SELECT latency_ms FROM usage_events WHERE created_at >= ? AND status = 'ok' AND latency_ms IS NOT NULL ORDER BY latency_ms`, since)
 	if err != nil {
 		return w, err
 	}
@@ -177,9 +180,13 @@ func (a *Admin) overview(ctx context.Context) (*Overview, error) {
 		o.Subscriptions = append(o.Subscriptions, NameCount{Name: credits.Plans[id].Label, Count: counts[string(id)]})
 	}
 
+	if o.CostCap, err = a.settings.CostCap(ctx); err != nil {
+		return nil, err
+	}
+	o.TrialEnabled = a.settings.TrialEnabled()
 	for _, id := range []credits.PlanID{credits.PlanTrial, credits.PlanFree, credits.PlanPro, credits.PlanProPlus} {
-		p := credits.Plans[id]
-		m := a.cfg.ModelFor(string(id))
+		p := a.settings.Plan(id)
+		m := a.settings.ModelFor(id, o.CostCap) // 成本上限触发降级时显示实际使用的模型
 		o.PlanModels = append(o.PlanModels, PlanModel{Plan: string(id), Label: p.Label, Model: m.Model, Effort: m.Effort, DailyCap: p.DailyCap, DailyRefill: p.DailyRefill})
 	}
 	return o, nil
@@ -578,6 +585,7 @@ func (a *Admin) limits(ctx context.Context) (*Limits, error) {
 	day := credits.UTCDay(now)
 	l := &Limits{Day: day}
 
+	limits := a.ipLimits()
 	// ip_counters.key = <kind>:<ip>:<YYYY-MM-DD>；IPv6 地址本身带冒号，所以按首尾冒号切分
 	rows, err := a.db.QueryContext(ctx, `SELECT key, count FROM ip_counters WHERE key LIKE ? ORDER BY count DESC LIMIT 500`, "%:"+day)
 	if err != nil {
@@ -594,7 +602,7 @@ func (a *Admin) limits(ctx context.Context) (*Limits, error) {
 		if first < 0 || last <= first {
 			continue
 		}
-		r := IPCounterRow{Kind: key[:first], IP: key[first+1 : last], Count: n, Limit: a.ipLimits[key[:first]]}
+		r := IPCounterRow{Kind: key[:first], IP: key[first+1 : last], Count: n, Limit: limits[key[:first]]}
 		r.Exceeded = r.Limit > 0 && r.Count >= r.Limit
 		l.IPCounters = append(l.IPCounters, r)
 	}
@@ -602,9 +610,9 @@ func (a *Admin) limits(ctx context.Context) (*Limits, error) {
 	sort.SliceStable(l.IPCounters, func(i, j int) bool { return l.IPCounters[i].Exceeded && !l.IPCounters[j].Exceeded })
 
 	// 今天用量接近或达到套餐每日上限的账户（显示达到上限 80% 以上的）
-	minCap := credits.Plans[credits.PlanTrial].DailyCap
-	for _, p := range credits.Plans {
-		minCap = min(minCap, p.DailyCap)
+	minCap := a.settings.Plan(credits.PlanTrial).DailyCap
+	for id := range credits.Plans {
+		minCap = min(minCap, a.settings.Plan(id).DailyCap)
 	}
 	rows, err = a.db.QueryContext(ctx, `SELECT c.owner, c.count, COALESCE(s.plan, ''), COALESCE(s.status, ''), COALESCE(s.current_period_end, 0)
 		FROM credit_usage_day c LEFT JOIN subscriptions s ON c.owner = 'u:' || s.user_id
@@ -626,7 +634,7 @@ func (a *Admin) limits(ctx context.Context) (*Limits, error) {
 		} else {
 			r.Plan = credits.ResolvePlan(subPlan, subStatus, subEnd, now)
 		}
-		r.Cap = credits.Plans[r.Plan].DailyCap
+		r.Cap = a.settings.Plan(r.Plan).DailyCap
 		if r.Used*5 < r.Cap*4 {
 			continue
 		}

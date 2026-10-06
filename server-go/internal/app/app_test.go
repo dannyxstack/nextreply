@@ -24,6 +24,7 @@ import (
 	"github.com/nextreply/server/internal/authn"
 	"github.com/nextreply/server/internal/config"
 	"github.com/nextreply/server/internal/credits"
+	"github.com/nextreply/server/internal/settings"
 	"github.com/nextreply/server/internal/store"
 )
 
@@ -599,5 +600,63 @@ func TestUsageEventsRecorded(t *testing.T) {
 	want := []string{"ok/1/", "error:timeout/0/timeout", "ok/1/", "rejected:ip_quota/0/ip_quota"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatal(got)
+	}
+}
+
+func TestRuntimeSettings(t *testing.T) {
+	h := newHarness(t)
+	st := h.srv.Settings()
+	ctx := context.Background()
+
+	// 后台改模型，下一次请求立即生效
+	if _, err := st.Apply(ctx, []settings.Change{{Key: "model.trial", Value: "claude-haiku-4-5"}}, "test"); err != nil {
+		t.Fatal(err)
+	}
+	token := h.register(deviceID)
+	h.do("POST", "/v1/reply", token, replyBody)
+	if h.ai.lastModel != "claude-haiku-4-5" {
+		t.Fatal(h.ai.lastModel)
+	}
+
+	// 暂停发放体验额度：新设备没有积分，需要登录
+	st.Apply(ctx, []settings.Change{{Key: "trial_enabled", Value: "false"}}, "test")
+	tok2 := h.register("device-no-trial-000000001")
+	if r := h.do("POST", "/v1/reply", tok2, replyBody); errCode(r) != "insufficient_credits" {
+		t.Fatal(r.raw)
+	}
+
+	// 每日上限下调
+	st.Apply(ctx, []settings.Change{{Key: "daily_cap.trial", Value: "1"}}, "test")
+	if r := h.do("POST", "/v1/reply", token, replyBody); errCode(r) != "daily_cap" {
+		t.Fatal(r.raw)
+	}
+	me := h.do("GET", "/v1/me", token, nil)
+	if num(me.body["plan"].(map[string]any)["daily_cap"]) != 1 {
+		t.Fatal(me.raw)
+	}
+}
+
+func TestCostCapPausesAndDowngradesFreeUsers(t *testing.T) {
+	h := newHarness(t)
+	st := h.srv.Settings()
+	ctx := context.Background()
+	token := h.register(deviceID)
+	// 今天已经花了 2 美元
+	h.db.Exec(`INSERT INTO usage_events (request_id, owner, plan, status, credits, created_at, cost_micros) VALUES ('x', 'd:other', 'pro', 'ok', 1, ?, 2000000)`, time.Now().UnixMilli())
+
+	st.Apply(ctx, []settings.Change{{Key: "cost_cap_usd", Value: "1"}, {Key: "cost_cap_action", Value: "pause_free"}}, "test")
+	r := h.do("POST", "/v1/reply", token, replyBody)
+	if r.status != 503 || errCode(r) != "service_busy" || h.ai.calls != 0 {
+		t.Fatal(r.status, r.raw)
+	}
+	var status string
+	h.db.QueryRow(`SELECT status FROM usage_events WHERE owner = ? ORDER BY created_at DESC LIMIT 1`, "d:"+deviceID).Scan(&status)
+	if status != "rejected:cost_cap" {
+		t.Fatal(status)
+	}
+
+	st.Apply(ctx, []settings.Change{{Key: "cost_cap_action", Value: "downgrade"}}, "test")
+	if r := h.do("POST", "/v1/reply", token, replyBody); r.status != 200 || h.ai.lastModel != "claude-haiku-4-5" {
+		t.Fatal(r.status, h.ai.lastModel)
 	}
 }

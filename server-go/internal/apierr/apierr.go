@@ -17,7 +17,9 @@ const (
 	Refusal             Code = "refusal"
 	InvalidOutput       Code = "invalid_output"
 	Timeout             Code = "timeout"
-	Internal            Code = "internal"
+	// 达到每日成本上限、暂停免费用户时返回；客户端按"服务暂不可用，稍后重试"处理
+	ServiceBusy Code = "service_busy"
+	Internal    Code = "internal"
 )
 
 var statusOf = map[Code]int{
@@ -32,6 +34,7 @@ var statusOf = map[Code]int{
 	Refusal:             http.StatusBadGateway,
 	InvalidOutput:       http.StatusBadGateway,
 	Timeout:             http.StatusGatewayTimeout,
+	ServiceBusy:         http.StatusServiceUnavailable,
 	Internal:            http.StatusInternalServerError,
 }
 

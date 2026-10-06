@@ -1,0 +1,48 @@
+{{define "content"}}
+{{with .Data}}
+<h1>运行配置</h1>
+<p class="muted">保存后立即生效，不需要重启。留空或选「默认」表示使用环境变量 / 代码里的默认值；每次修改都会写入操作审计。</p>
+
+<div class="cards" style="margin-bottom:8px">
+  <div class="card"><div class="k">今天估算成本（UTC）</div><div class="v">{{usd .CostCap.TodayMicros}}</div>
+    <div class="s">{{if .CostCap.CapMicros}}上限 {{usd .CostCap.CapMicros}} · {{pct64 .CostCap.TodayMicros .CostCap.CapMicros}}{{else}}未设上限{{end}}</div></div>
+  {{if .CostCap.Hit}}<div class="card"><div class="k">成本上限</div><div class="v bad">已触发</div>
+    <div class="s">{{if eq .CostCap.Action "pause_free"}}免费用户已暂停{{else}}免费用户已降级到 {{.CostCap.Model}}{{end}}</div></div>{{end}}
+</div>
+
+<form method="post" action="/settings">
+{{range .Groups}}
+<h2>{{.Name}}</h2>
+<div class="scroll"><table>
+<tr><th>配置项</th><th>当前生效</th><th>修改为</th><th>默认值</th><th>说明</th></tr>
+{{range .Rows}}<tr>
+  <td>{{.Label}}{{if .Overridden}} <span class="tag warn">已修改</span>{{end}}</td>
+  <td><b>{{.Current}}</b></td>
+  <td>
+    {{if .Options}}
+    {{$cur := .Current}}{{$ov := .Overridden}}
+    <select name="{{.Key}}">
+      <option value="" {{if not $ov}}selected{{end}}>默认（{{.Default}}）</option>
+      {{range .Options}}<option value="{{.}}" {{if and $ov (eq . $cur)}}selected{{end}}>{{.}}</option>{{end}}
+    </select>
+    {{else}}
+    <input type="text" name="{{.Key}}" value="{{if .Overridden}}{{.Current}}{{end}}" placeholder="默认 {{.Default}}" inputmode="decimal" style="width:120px">
+    {{end}}
+  </td>
+  <td class="muted">{{.Default}}</td>
+  <td class="muted" style="white-space:normal; min-width:220px">{{.Help}}</td>
+</tr>{{end}}
+</table></div>
+{{end}}
+<div class="actions" style="margin-top:20px">
+  <div class="form-like">
+    <label>修改原因（可选，写入审计）</label>
+    <input type="text" name="reason" maxlength="200" style="font:inherit; padding:6px 8px; border:1px solid var(--border); border-radius:6px; width:100%">
+    <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="/settings">
+    <div style="margin-top:10px"><button type="submit">保存并生效</button></div>
+  </div>
+</div>
+</form>
+<p class="muted">模型只能在有价目的模型之间切换（internal/ai/pricing.go）。成本按价目表估算，可能和 Anthropic 账单略有出入；上限按 UTC 日计算，触发后最多 30 秒内生效。</p>
+{{end}}
+{{end}}

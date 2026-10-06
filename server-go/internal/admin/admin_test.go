@@ -15,6 +15,7 @@ import (
 	"github.com/nextreply/server/internal/ai"
 	"github.com/nextreply/server/internal/app"
 	"github.com/nextreply/server/internal/config"
+	"github.com/nextreply/server/internal/settings"
 	"github.com/nextreply/server/internal/store"
 )
 
@@ -24,6 +25,7 @@ type env struct {
 	h   http.Handler
 	db  *sql.DB
 	api string
+	st  *settings.Store
 }
 
 func setup(t *testing.T) (http.Handler, *sql.DB) {
@@ -46,7 +48,7 @@ func setupEnv(t *testing.T) env {
 		TokenSecret: "test-secret-0123456789-abcdefghijklmn", Model: "claude-opus-5-5", Effort: "low",
 		IPDailyQuota: 3, RegisterPerIP: 20, DevMode: true, PublicURL: "http://t",
 		AdminToken: token, AdminTZ: "Asia/Shanghai",
-		PlanModels: map[string]config.ModelChoice{"trial": {Model: "claude-sonnet-5", Effort: "low"}},
+		PlanModels: map[string]config.ModelChoice{"trial": {Model: "claude-sonnet-5", Effort: "low"}, "free": {Model: "claude-sonnet-5", Effort: "low"}},
 	}
 	srv := app.New(cfg, db, ai.Mock{})
 	api := httptest.NewServer(srv.Handler())
@@ -75,11 +77,11 @@ func setupEnv(t *testing.T) env {
 		post("/v1/reply", dev, img)
 	}
 
-	adm, err := New(cfg, db, srv.Credits(), srv.IPLimits())
+	adm, err := New(cfg, db, srv.Credits(), srv.Settings(), srv.IPLimits)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return env{h: adm.Handler(), db: db, api: api.URL}
+	return env{h: adm.Handler(), db: db, api: api.URL, st: srv.Settings()}
 }
 
 func get(t *testing.T, h http.Handler, path string, auth bool) (int, string) {

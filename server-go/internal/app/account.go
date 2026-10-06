@@ -76,15 +76,16 @@ func (s *Server) ensureDevice(ctx context.Context, deviceID, hwHash, ip string) 
 			return err
 		}
 	}
-	if sameMachine {
+	// 后台可以暂停发放体验额度（例如遭遇批量注册时）；设备照常登记，登录后可用
+	if sameMachine || !s.settings.TrialEnabled() || s.settings.TrialCredits() == 0 {
 		return nil
 	}
-	ok, err := s.takeIfUnder(ctx, s.ipKey("trial", ip), credits.TrialsPerIPPerDay)
+	ok, err := s.takeIfUnder(ctx, s.ipKey("trial", ip), s.settings.TrialsPerIP())
 	if err != nil || !ok {
 		return err
 	}
 	if _, err := s.credits.Grant(ctx, credits.DeviceOwner(deviceID), credits.GrantInput{
-		Bucket: credits.BucketTrial, Amount: credits.TrialCredits, SourceRef: "trial", Reason: "trial",
+		Bucket: credits.BucketTrial, Amount: s.settings.TrialCredits(), SourceRef: "trial", Reason: "trial",
 	}); err != nil {
 		return err
 	}
@@ -115,7 +116,7 @@ func (s *Server) deviceRegister(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if !known {
-		ok, err := s.takeIfUnder(ctx, s.ipKey("reg", ip), s.cfg.RegisterPerIP)
+		ok, err := s.takeIfUnder(ctx, s.ipKey("reg", ip), s.settings.RegisterPerIP())
 		if err != nil {
 			return err
 		}
@@ -517,7 +518,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ctx := r.Context()
-	plan := credits.Plans[caller.Plan]
+	plan := s.settings.Plan(caller.Plan)
 	bal, err := s.credits.Balance(ctx, caller.Owner, plan.DailyRefill)
 	if err != nil {
 		return err
@@ -528,7 +529,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) error {
 	}
 	paid := []map[string]any{}
 	for _, id := range credits.PaidPlans {
-		p := credits.Plans[id]
+		p := s.settings.Plan(id)
 		paid = append(paid, map[string]any{"id": id, "label": p.Label, "price_usd": p.PriceUSD, "monthly_credits": p.MonthlyCredits, "daily_cap": p.DailyCap})
 	}
 	resp := map[string]any{

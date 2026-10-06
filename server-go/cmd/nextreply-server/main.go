@@ -120,15 +120,15 @@ func serve() error {
 		errCh := make(chan error, 1)
 		go func() {
 			slog.Info("listening", "addr", cfg.ListenAddr, "db", cfg.DatabasePath,
-				"model_trial", cfg.ModelFor("trial").Model, "model_free", cfg.ModelFor("free").Model,
-				"model_pro", cfg.ModelFor("pro").Model, "model_pro_plus", cfg.ModelFor("pro_plus").Model)
+				"model_trial", srv.Settings().Get("model.trial"), "model_free", srv.Settings().Get("model.free"),
+				"model_pro", srv.Settings().Get("model.pro"), "model_pro_plus", srv.Settings().Get("model.pro_plus"))
 			errCh <- httpSrv.ListenAndServe()
 		}()
 
 		// 管理后台：独立的监听地址，只对本机开放（见 TECH_DESIGN §5.8）
 		var adminSrv *http.Server
 		if cfg.AdminToken != "" {
-			adm, err := admin.New(cfg, db, srv.Credits(), srv.IPLimits())
+			adm, err := admin.New(cfg, db, srv.Credits(), srv.Settings(), srv.IPLimits)
 			if err != nil {
 				return err
 			}

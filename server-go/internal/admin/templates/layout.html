@@ -54,6 +54,8 @@
   .actions label { font-size:12px; color:var(--muted); }
   .row { display:flex; gap:8px; } .row > * { flex:1; }
   button.danger { background:var(--bad); }
+  select { font:inherit; padding:5px 8px; border:1px solid var(--border); border-radius:6px; background:var(--panel); color:var(--text); }
+  .banner { margin-bottom:16px; padding:10px 14px; border-radius:8px; border:1px solid var(--warn); color:var(--warn); background:var(--panel); }
   button.small { padding:2px 8px; font-size:12px; }
   td form { display:inline; margin:0; }
   @media (max-width: 640px) { main, header { padding-left:16px; padding-right:16px; } .grid2 { grid-template-columns:1fr; } input[type=search] { width:100%; } }
@@ -66,6 +68,7 @@
     <a href="/" class="{{if eq .Nav "overview"}}on{{end}}">概览</a>
     <a href="/accounts" class="{{if eq .Nav "accounts"}}on{{end}}">账户</a>
     <a href="/limits" class="{{if eq .Nav "limits"}}on{{end}}">限额与风控</a>
+    <a href="/settings" class="{{if eq .Nav "settings"}}on{{end}}">运行配置</a>
     <a href="/audit" class="{{if eq .Nav "audit"}}on{{end}}">操作审计</a>
   </nav>
   <span class="meta">{{.Now}}（{{.TZ}}）</span>

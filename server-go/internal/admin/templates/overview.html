@@ -14,6 +14,8 @@
 {{define "content"}}
 {{with .Data}}
 <h1>概览</h1>
+{{if .CostCap.Hit}}<div class="banner">今天估算成本 {{usd .CostCap.TodayMicros}} 已达到上限 {{usd .CostCap.CapMicros}}：{{if eq .CostCap.Action "pause_free"}}免费用户已暂停{{else}}免费用户已降级到 {{.CostCap.Model}}{{end}}。<a href="/settings">调整</a></div>{{end}}
+{{if not .TrialEnabled}}<div class="banner">体验额度发放已暂停，新设备需要登录才能使用。<a href="/settings">调整</a></div>{{end}}
 
 <h2>今天</h2>
 {{template "window" .Today}}
@@ -50,7 +52,7 @@
 </table></div>
 </div>
 <div>
-<h2>当前配置</h2>
+<h2>当前配置 · <a href="/settings" style="font-weight:400; font-size:13px">修改</a></h2>
 <div class="scroll"><table>
 <tr><th>套餐</th><th>模型</th><th>effort</th><th class="n">每日上限</th><th class="n">每日补充</th><th class="n">有效订阅</th></tr>
 {{$subs := .Subscriptions}}

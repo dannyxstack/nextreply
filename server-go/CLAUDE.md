@@ -66,7 +66,8 @@ ssh -N -L 8788:127.0.0.1:8787 <用户>@<服务器>
 | `internal/admin/` | 管理后台：查询（`queries.go`）、页面模板（`templates/`）；监听 `ADMIN_ADDR`，Basic 认证 |
 | `internal/credits/` | 套餐数值（`plans.go`）、扣费纯函数（`allocate.go`）、积分账户（`service.go`） |
 | `internal/store/` | SQLite、迁移（`migrations/`）、备份、清理 |
-| `internal/config/` | 环境变量，包括每个套餐使用的模型 |
+| `internal/config/` | 环境变量（运行配置的默认值） |
+| `internal/settings/` | 运行配置：可在后台修改的项、校验、覆盖值、成本上限；业务代码读模型 / 上限 / 限额都走这里 |
 | `scripts/` | 端到端测试 |
 
 ## 开发约定

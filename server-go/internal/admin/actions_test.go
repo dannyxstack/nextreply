@@ -285,3 +285,64 @@ func TestActorFromCloudflareAccess(t *testing.T) {
 		t.Fatal(who)
 	}
 }
+
+func TestSettingsPage(t *testing.T) {
+	e := setupEnv(t)
+	code, body := get(t, e.h, "/settings", true)
+	if code != 200 || !strings.Contains(body, `name="model.trial"`) || !strings.Contains(body, "每日成本上限") {
+		t.Fatal("settings page", code)
+	}
+	csrf := csrfToken(t, e.h, "/settings")
+
+	// 只提交部分字段：其余保持不变
+	form := url.Values{"csrf": {csrf}, "back": {"/settings"}, "model.free": {"claude-haiku-4-5"}, "cost_cap_usd": {"5"}, "reason": {"省钱"}}
+	if _, loc := post(t, e.h, "/settings", form); flash(loc) != "配置已保存并生效" {
+		t.Fatal(flash(loc))
+	}
+	_, body = get(t, e.h, "/settings", true)
+	if strings.Count(body, "已修改") != 2 {
+		t.Fatal("overridden markers", strings.Count(body, "已修改"))
+	}
+	var detail string
+	e.db.QueryRow(`SELECT detail FROM admin_audit WHERE action = 'update_settings'`).Scan(&detail)
+	if !strings.Contains(detail, "claude-sonnet-5 → claude-haiku-4-5") || !strings.Contains(detail, "省钱") {
+		t.Fatal(detail)
+	}
+
+	// 不合法的值：提示原因，什么都不改
+	form = url.Values{"csrf": {csrf}, "back": {"/settings"}, "model.free": {"claude-sonnet-5"}, "daily_cap.pro": {"-3"}}
+	if _, loc := post(t, e.h, "/settings", form); !strings.Contains(flash(loc), "必须是") {
+		t.Fatal(flash(loc))
+	}
+	// 没有变化
+	form = url.Values{"csrf": {csrf}, "back": {"/settings"}, "model.free": {"claude-haiku-4-5"}}
+	if _, loc := post(t, e.h, "/settings", form); !strings.Contains(flash(loc), "没有修改") {
+		t.Fatal(flash(loc))
+	}
+	// 留空恢复默认
+	form = url.Values{"csrf": {csrf}, "back": {"/settings"}, "model.free": {""}, "cost_cap_usd": {""}}
+	post(t, e.h, "/settings", form)
+	if _, body = get(t, e.h, "/settings", true); strings.Contains(body, "已修改") {
+		t.Fatal("reset to default failed")
+	}
+	if _, body = get(t, e.h, "/audit", true); !strings.Contains(body, "修改配置") || !strings.Contains(body, `href="/settings">运行配置`) {
+		t.Fatal("audit should show settings changes")
+	}
+}
+
+func TestOverviewBanners(t *testing.T) {
+	e := setupEnv(t)
+	// 一条 latency_ms 为空的记录（旧数据可能如此），概览页不能因此出错
+	e.db.Exec(`INSERT INTO usage_events (request_id, owner, plan, status, credits, created_at, cost_micros) VALUES ('c1', 'd:x', 'trial', 'ok', 1, strftime('%s','now') * 1000, 10)`)
+	// setup 里的 mock 调用成本为 0；像真实调用一样累加成本
+	e.st.AddCost(10)
+	csrf := csrfToken(t, e.h, "/settings")
+	post(t, e.h, "/settings", url.Values{"csrf": {csrf}, "trial_enabled": {"false"}, "cost_cap_usd": {"0.000001"}})
+	code, body := get(t, e.h, "/", true)
+	if code != 200 || !strings.Contains(body, "体验额度发放已暂停") {
+		t.Fatal("trial banner", code)
+	}
+	if !strings.Contains(body, "已达到上限") || !strings.Contains(body, "免费用户已降级到 claude-haiku-4-5") {
+		t.Fatal("cost cap banner")
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/nextreply/server/internal/apierr"
 	"github.com/nextreply/server/internal/authn"
 	"github.com/nextreply/server/internal/credits"
+	"github.com/nextreply/server/internal/settings"
 )
 
 const maxImageB64Chars = 6_000_000
@@ -88,12 +89,21 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if count >= s.cfg.IPDailyQuota {
+	if count >= s.settings.IPDailyQuota() {
 		return reject("ip_quota", apierr.New(apierr.RateLimited, "Too many requests from this network today."))
 	}
 
+	// 每日成本上限：只影响免费用户（暂停或降级模型），付费用户照常
+	costCap, err := s.settings.CostCap(ctx)
+	if err != nil {
+		return err
+	}
+	if costCap.Hit && costCap.Action == settings.CapPauseFree && settings.IsFreeTier(caller.Plan) {
+		return reject("cost_cap", apierr.New(apierr.ServiceBusy, "The service is busy right now, please try again later."))
+	}
+
 	// 预扣积分（含频率限制、每日上限）。幂等键由客户端提供，网络重试不会重复扣费
-	plan := credits.Plans[caller.Plan]
+	plan := s.settings.Plan(caller.Plan)
 	holdKey := r.Header.Get("Idempotency-Key")
 	if !idempotencyRe.MatchString(holdKey) {
 		holdKey = requestID
@@ -122,7 +132,7 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	device := authn.DeviceHash(caller.DeviceID)
-	model := s.cfg.ModelFor(string(caller.Plan))
+	model := s.settings.ModelFor(caller.Plan, costCap)
 	out, err := s.ai.Generate(ctx, ai.Input{
 		Model:       model.Model,
 		Effort:      model.Effort,
@@ -167,6 +177,7 @@ func (s *Server) reply(w http.ResponseWriter, r *http.Request) error {
 		"cache_read", out.Usage.CacheRead, "cache_write", out.Usage.CacheWrite, "client_version", optionalString(body, "client_version", 20))
 	event.status, event.model, event.latencyMs, event.usage = string(out.Result.Status), out.Model, latency, out.Usage
 	event.costMicros = ai.CostMicros(out.Model, out.Usage)
+	s.settings.AddCost(event.costMicros)
 	if charged {
 		event.credits = credits.ReplyCost
 	}

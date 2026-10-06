@@ -32,7 +32,7 @@
 <div class="scroll"><table>
 <tr><th>原因</th><th>账户</th><th>IP</th><th class="n">次数</th><th>最近一次</th></tr>
 {{range .Rejections}}<tr>
-  <td class="warn">{{if eq .Reason "insufficient_credits"}}积分不足{{else if eq .Reason "daily_cap"}}达到每日上限{{else if eq .Reason "rate_limited"}}请求太频繁{{else if eq .Reason "ip_quota"}}IP 达到每日上限{{else}}{{.Reason}}{{end}}</td>
+  <td class="warn">{{if eq .Reason "insufficient_credits"}}积分不足{{else if eq .Reason "daily_cap"}}达到每日上限{{else if eq .Reason "rate_limited"}}请求太频繁{{else if eq .Reason "ip_quota"}}IP 达到每日上限{{else if eq .Reason "cost_cap"}}成本上限暂停{{else}}{{.Reason}}{{end}}</td>
   <td>{{$k := slice .Owner 0 1}}<a href="/accounts/{{$k}}/{{slice .Owner 2}}">{{if eq $k "u"}}用户{{else}}设备{{end}} {{short (slice .Owner 2)}}</a></td>
   <td>{{.IP}}</td><td class="n">{{.Count}}</td><td>{{time .Last}}</td>
 </tr>{{else}}<tr><td colspan="5" class="empty">没有</td></tr>{{end}}

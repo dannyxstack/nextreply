@@ -283,7 +283,7 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 
 **数据补充**（迁移 `0002`）
 - `usage_events` 增加 `device_id、ip、tokens_in、tokens_out、cache_read、cache_write、cost_micros（估算成本，百万分之一美元）、error_code`。
-- 被拒绝和出错的请求也记一条：`status` 为 `rejected:<原因>`（`insufficient_credits`、`daily_cap`、`rate_limited`、`ip_quota`）或 `error:<错误码>`，`credits = 0`。
+- 被拒绝和出错的请求也记一条：`status` 为 `rejected:<原因>`（`insufficient_credits`、`daily_cap`、`rate_limited`、`ip_quota`、`cost_cap`）或 `error:<错误码>`，`credits = 0`。
 - 成本按 `internal/ai/pricing.go` 的价目表估算（输入、输出、缓存写入、缓存读取分别计价），实际账单以 Anthropic Console 为准。
 
 **管理操作（阶段 2）**
@@ -298,8 +298,15 @@ Idle ──hotkey──► Selecting ──mouseup──► Analyzing ──ok/e
 - 全部为 POST + CSRF 令牌（每次启动随机生成）+ 同源校验（`Origin` / `Sec-Fetch-Site`），POST 后重定向回原页面显示结果。
 - 每次成功的操作写入 `admin_audit`（时间、操作、对象、参数与原因、操作者、来源 IP）；经过 Cloudflare Access 时操作者为其认证的邮箱。后台不提供删除审计记录的功能。
 
-**后续阶段**
-- 阶段 3：运行时配置（各套餐模型、每日上限、IP 限额、暂停体验额度、每日成本上限），存 `settings` 表，环境变量作为默认值。
+**运行配置（阶段 3）** `/settings`
+
+- 环境变量和代码里的套餐表是默认值；后台修改的值存在 `settings` 表里覆盖默认值，保存后立即在本进程生效（单实例，无需跨进程通知），留空即恢复默认。定义见 `server-go/internal/settings/`。
+- 可配置项：各套餐的模型和 effort（只能选价目表里的模型）、各套餐每日上限、免费用户每日补充、匿名体验额度；是否发放体验额度、同一 IP 每天发放体验额度的设备数 / 注册设备数 / 成功回复数；每日成本上限。
+- **每日成本上限**：今天（UTC）估算成本达到上限后，只影响免费用户（trial / free）：
+  - `downgrade`（默认）：改用降级模型（默认 `claude-haiku-4-5`）；
+  - `pause_free`：拒绝请求，返回 503 `service_busy`（客户端按"暂时不可用，稍后重试"显示，无需改协议），记为 `rejected:cost_cap`。
+  - 付费用户不受影响。今天的成本缓存 30 秒并实时累加新调用，触发延迟不超过 30 秒。
+- 每次保存写入 `admin_audit`（`update_settings`，记录每项的旧值 → 新值）。数据库里的值不再合法时（例如价目表删掉了某个模型）自动回退到默认值。
 
 ---
 

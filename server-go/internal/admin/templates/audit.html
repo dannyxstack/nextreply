@@ -6,7 +6,7 @@
 <tr><th>时间</th><th>操作</th><th>对象</th><th>详情</th><th>操作者</th><th>来源 IP</th></tr>
 {{range .Rows}}<tr>
   <td>{{time .CreatedAt}}</td><td>{{action .Action}}</td>
-  <td>{{$k := slice .Target 0 1}}<a href="/accounts/{{$k}}/{{slice .Target 2}}">{{if eq $k "u"}}用户{{else}}设备{{end}} {{short (slice .Target 2)}}</a> · <a href="/audit?target={{.Target}}">筛选</a></td>
+  <td>{{if or (hasPrefix .Target "u:") (hasPrefix .Target "d:")}}{{$k := slice .Target 0 1}}<a href="/accounts/{{$k}}/{{slice .Target 2}}">{{if eq $k "u"}}用户{{else}}设备{{end}} {{short (slice .Target 2)}}</a>{{else if eq .Target "settings"}}<a href="/settings">运行配置</a>{{else}}{{.Target}}{{end}} · <a href="/audit?target={{.Target}}">筛选</a></td>
   <td><code>{{.Detail}}</code></td><td>{{.Actor}}</td><td>{{.IP}}</td>
 </tr>{{else}}<tr><td colspan="6" class="empty">还没有操作记录</td></tr>{{end}}
 </table></div>
