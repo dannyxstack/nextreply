@@ -16,7 +16,7 @@ fn escape() -> Shortcut {
 }
 
 pub fn parse(accelerator: &str) -> Result<Shortcut, String> {
-    accelerator.parse::<Shortcut>().map_err(|e| format!("无效的快捷键 \"{accelerator}\"：{e}"))
+    accelerator.parse::<Shortcut>().map_err(|e| format!("Invalid shortcut \"{accelerator}\": {e}"))
 }
 
 /// 注册（或更换）主快捷键。先注册新的，成功后再注销旧的，失败时保持原状。
@@ -29,7 +29,7 @@ pub fn register_main(app: &AppHandle, accelerator: &str) -> Result<(), String> {
     }
     app.global_shortcut()
         .register(shortcut)
-        .map_err(|e| format!("快捷键 \"{accelerator}\" 注册失败，可能已被其他软件占用：{e}"))?;
+        .map_err(|e| format!("Couldn't register shortcut \"{accelerator}\", another app may be using it: {e}"))?;
     if let Some(old) = hk.main.replace(shortcut) {
         let _ = app.global_shortcut().unregister(old);
     }

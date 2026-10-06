@@ -94,7 +94,7 @@ pub async fn account_login(app: AppHandle) -> Result<(), String> {
         (state.credentials(), state.login_in_progress.swap(true, Ordering::SeqCst))
     };
     if busy {
-        return Err("登录正在进行中，请在浏览器里完成".into());
+        return Err("Sign-in already in progress, finish it in your browser".into());
     }
     let result = async {
         // 确保设备已在服务端登记（绑定账号、判断注册赠送都以设备为单位）
@@ -102,7 +102,7 @@ pub async fn account_login(app: AppHandle) -> Result<(), String> {
         let req = login::prepare(&creds)?;
         #[cfg(debug_assertions)]
         log::debug!("login url: {}", req.url);
-        app.opener().open_url(req.url.clone(), None::<&str>).map_err(|e| AuthError::Server(format!("无法打开浏览器：{e}")))?;
+        app.opener().open_url(req.url.clone(), None::<&str>).map_err(|e| AuthError::Server(format!("Couldn't open the browser: {e}")))?;
         login::complete(&creds, req).await
     }
     .await;
@@ -127,7 +127,7 @@ pub async fn account_logout(app: AppHandle) -> Result<(), String> {
 pub async fn billing_open(app: AppHandle, purpose: String, plan: Option<String>) -> Result<(), String> {
     let creds = app.state::<AppState>().credentials();
     let url = creds.billing_link(&purpose, plan.as_deref()).await.map_err(|e| e.to_string())?;
-    app.opener().open_url(url, None::<&str>).map_err(|e| format!("无法打开浏览器：{e}"))
+    app.opener().open_url(url, None::<&str>).map_err(|e| format!("Couldn't open the browser: {e}"))
 }
 
 /// overlay 上的"去登录 / 去升级"：先关闭当前流程，再打开设置页。
@@ -177,7 +177,7 @@ pub fn get_settings(app: AppHandle) -> SettingsView {
 pub fn save_settings(app: AppHandle, input: SettingsInput) -> Result<SettingsView, String> {
     let server_url = input.server_url.trim().trim_end_matches('/').to_string();
     if !(server_url.starts_with("http://") || server_url.starts_with("https://")) {
-        return Err("服务端地址必须以 http:// 或 https:// 开头".into());
+        return Err("Server URL must start with http:// or https://".into());
     }
     let shortcut = input.shortcut.trim().to_string();
     hotkey::register_main(&app, &shortcut)?;
@@ -187,7 +187,7 @@ pub fn save_settings(app: AppHandle, input: SettingsInput) -> Result<SettingsVie
     if current_autostart != input.launch_at_login {
         let al = app.autolaunch();
         let r = if input.launch_at_login { al.enable() } else { al.disable() };
-        r.map_err(|e| format!("开机启动设置失败：{e}"))?;
+        r.map_err(|e| format!("Couldn't update launch at login: {e}"))?;
     }
 
     let mut s = state.settings.lock().unwrap();

@@ -5,6 +5,9 @@ const STILL_THINKING_AFTER_MS = 4000;
 
 const STYLE_ICON: Record<string, string> = { empathetic: "😌", funny: "😄", direct: "⚡" };
 
+// 风格标签属于界面文案，按界面语言（英文）由客户端显示；回复正文保持聊天本身的语言
+const STYLE_LABEL: Record<string, string> = { empathetic: "Thoughtful", funny: "Playful", direct: "Direct" };
+
 // 需求文档 §3.9 的错误文案
 const ERROR_TEXT: Record<AiErrorCode, [string, string?]> = {
   network: ["Network unavailable."],
@@ -12,17 +15,17 @@ const ERROR_TEXT: Record<AiErrorCode, [string, string?]> = {
   insufficient_context: ["Not enough conversation context.", "Try selecting a slightly larger area."],
   not_a_conversation: ["I couldn't confidently identify the conversation.", "Try selecting the chat area again."],
   quota_exceeded: ["Today's free replies are used up.", "Come back tomorrow."],
-  login_required: ["体验次数已用完", "登录即送 50 次回复额度。"],
-  insufficient_credits: ["积分已用完", "明天会补充免费额度，或升级 Pro 获得更多。"],
-  daily_cap: ["今天的使用次数已达上限", "明天再来，或升级套餐提高上限。"],
-  rate_limited: ["请求太频繁了", "稍等几秒再试。"],
+  login_required: ["Free trial used up.", "Sign in to get 50 more replies."],
+  insufficient_credits: ["Out of credits.", "Free credits refill tomorrow, or upgrade to Pro for more."],
+  daily_cap: ["Daily limit reached.", "Come back tomorrow, or upgrade for a higher limit."],
+  rate_limited: ["Too many requests.", "Wait a few seconds and try again."],
 };
 
 /** 这些错误需要用户去账户页处理（登录 / 升级） */
 const ACCOUNT_ACTION: Partial<Record<AiErrorCode, string>> = {
-  login_required: "登录领取额度",
-  insufficient_credits: "查看账户 / 升级",
-  daily_cap: "查看账户 / 升级",
+  login_required: "Sign in for free replies",
+  insufficient_credits: "View account / Upgrade",
+  daily_cap: "View account / Upgrade",
 };
 
 export function Overlay() {
@@ -113,7 +116,7 @@ function Body({ state, stillThinking }: { state: OverlayPayload; stillThinking: 
                 <button className="reply" onClick={() => copyReply(i)}>
                   <span className="reply-head">
                     <span className="reply-label">
-                      {STYLE_ICON[r.style] ?? "💬"} {r.label}
+                      {STYLE_ICON[r.style] ?? "💬"} {STYLE_LABEL[r.style] ?? r.label}
                     </span>
                     <kbd>{i + 1}</kbd>
                   </span>
@@ -129,6 +132,6 @@ function Body({ state, stillThinking }: { state: OverlayPayload; stillThinking: 
 }
 
 function Footer({ withKeys = false, remaining }: { withKeys?: boolean; remaining?: number | null }) {
-  const keys = withKeys ? "点击或按 1–3 复制 · Esc 关闭" : "Esc 关闭";
-  return <div className="footer">{remaining != null ? `剩余 ${remaining} 次 · ${keys}` : keys}</div>;
+  const keys = withKeys ? "Click or press 1–3 to copy · Esc to close" : "Esc to close";
+  return <div className="footer">{remaining != null ? `${remaining} left · ${keys}` : keys}</div>;
 }
