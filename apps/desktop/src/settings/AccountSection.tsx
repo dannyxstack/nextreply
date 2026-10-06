@@ -3,14 +3,17 @@ import { useCallback, useEffect, useState } from "react";
 import { accountLogin, accountLogout, accountStatus, billingOpen, onAccountChanged, type AccountStatus, type Bucket } from "../shared/ipc";
 
 const BUCKET_LABEL: Record<Bucket, string> = {
-  trial: "体验",
-  bonus: "注册赠送",
-  daily: "今日免费",
-  subscription: "订阅",
-  topup: "加购",
+  trial: "Trial",
+  bonus: "Sign-up bonus",
+  daily: "Free today",
+  subscription: "Subscription",
+  topup: "Top-up",
 };
 
-const fmtDate = (ms: number) => new Date(ms).toLocaleDateString("zh-CN");
+// 套餐名称属于界面文案，由客户端按界面语言显示（服务端返回的 label 只用于服务端页面）
+const PLAN_LABEL: Record<string, string> = { trial: "Trial", free: "Free", pro: "Pro", pro_plus: "Pro+" };
+
+const fmtDate = (ms: number) => new Date(ms).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
 type Busy = null | "login" | "logout" | "billing";
 
@@ -56,7 +59,7 @@ export function AccountSection() {
     return (
       <section>
         <h2>Account</h2>
-        {error ? <p className="account-error">无法连接服务：{error}</p> : <small>加载中…</small>}
+        {error ? <p className="account-error">Can't reach the service: {error}</p> : <small>Loading…</small>}
       </section>
     );
   }
@@ -70,20 +73,20 @@ export function AccountSection() {
       {status.logged_in && status.user ? (
         <div className="account-row">
           <span className="account-email">{status.user.email}</span>
-          <span className={`plan-badge plan-${plan.id}`}>{plan.label}</span>
+          <span className={`plan-badge plan-${plan.id}`}>{PLAN_LABEL[plan.id] ?? plan.label}</span>
         </div>
       ) : (
         <div className="account-row">
-          <span>未登录 · 体验模式</span>
-          <span className="plan-badge plan-trial">{plan.label}</span>
+          <span>Not signed in · Free trial</span>
+          <span className="plan-badge plan-trial">{PLAN_LABEL[plan.id] ?? plan.label}</span>
         </div>
       )}
 
       <div className="credits">
         <span className="credits-total">{credits.total}</span>
-        <span className="credits-unit">次可用</span>
+        <span className="credits-unit">replies left</span>
         <span className="credits-today">
-          今日已用 {credits.used_today} / {plan.daily_cap}
+          Today {credits.used_today} / {plan.daily_cap}
         </span>
       </div>
       {credits.buckets.length > 0 && (
@@ -91,7 +94,7 @@ export function AccountSection() {
           {credits.buckets.map((b) => (
             <li key={b.bucket}>
               {BUCKET_LABEL[b.bucket]} {b.remaining}
-              {b.expires_at && b.bucket !== "daily" ? `（${fmtDate(b.expires_at)} 到期）` : ""}
+              {b.expires_at && b.bucket !== "daily" ? ` (expires ${fmtDate(b.expires_at)})` : ""}
             </li>
           ))}
         </ul>
@@ -99,41 +102,40 @@ export function AccountSection() {
 
       {subscription && (
         <small className="sub-line">
-          {subscription.cancel_at_period_end ? "订阅将于" : "下次续费"}{" "}
+          {subscription.cancel_at_period_end ? "Subscription ends on" : "Renews on"}{" "}
           {subscription.current_period_end ? fmtDate(subscription.current_period_end) : "—"}
-          {subscription.cancel_at_period_end ? " 结束" : ""}
-          {subscription.status === "past_due" ? " · 扣款失败，请更新付款方式" : ""}
+          {subscription.status === "past_due" ? " · Payment failed, please update your payment method" : ""}
         </small>
       )}
 
       <div className="account-actions">
         {!status.logged_in && (
           <button className="primary" disabled={busy !== null} onClick={() => run("login", accountLogin)}>
-            {busy === "login" ? "请在浏览器中完成登录…" : "登录 / 注册（送 50 次）"}
+            {busy === "login" ? "Finish signing in in your browser…" : "Sign in / Sign up (50 free replies)"}
           </button>
         )}
 
         {status.logged_in && !subscription &&
           billing.plans.map((p) => (
             <button key={p.id} className="primary" disabled={busy !== null} onClick={() => run("billing", () => billingOpen("checkout", p.id))}>
-              升级 {p.label} · ${p.price_usd}/月（{p.monthly_credits} 次）
+              Upgrade to {PLAN_LABEL[p.id] ?? p.label} · ${p.price_usd}/mo ({p.monthly_credits} replies)
             </button>
           ))}
 
         {status.logged_in && subscription && (
           <button className="secondary" disabled={busy !== null} onClick={() => run("billing", () => billingOpen("portal"))}>
-            管理订阅
+            Manage subscription
           </button>
         )}
 
         {status.logged_in && (
           <button className="link" disabled={busy !== null} onClick={() => run("logout", accountLogout)}>
-            退出登录
+            Sign out
           </button>
         )}
       </div>
 
-      {billing.dev && !billing.stripe && status.logged_in && <small>开发模式：支付为模拟流程，不会产生真实扣费。</small>}
+      {billing.dev && !billing.stripe && status.logged_in && <small>Dev mode: checkout is simulated, no real charges.</small>}
       {error && <p className="account-error">{error}</p>}
     </section>
   );

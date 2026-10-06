@@ -47,7 +47,7 @@ pub enum AuthError {
 impl std::fmt::Display for AuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AuthError::Network(e) => write!(f, "网络不可用：{e}"),
+            AuthError::Network(e) => write!(f, "Network unavailable: {e}"),
             AuthError::Server(e) => write!(f, "{e}"),
         }
     }
@@ -108,7 +108,7 @@ impl Credentials {
             .await
             .map_err(net)?;
         if !resp.status().is_success() {
-            return Err(AuthError::Server(format!("设备注册失败（{}）", resp.status())));
+            return Err(AuthError::Server(format!("Device registration failed ({})", resp.status())));
         }
         let token = resp.json::<DeviceTokenResponse>().await.map_err(net)?.token;
         self.device_tokens.set(&token);
@@ -158,7 +158,7 @@ impl Credentials {
             return Ok(None);
         }
         if !resp.status().is_success() {
-            return Err(AuthError::Server(format!("刷新登录状态失败（{}）", resp.status())));
+            return Err(AuthError::Server(format!("Couldn't refresh your session ({})", resp.status())));
         }
         let t = resp.json::<TokenResponse>().await.map_err(net)?;
         self.store_tokens(&t);
@@ -199,7 +199,7 @@ impl Credentials {
     pub async fn me(&self) -> Result<Value, AuthError> {
         let resp = self.send_authed(reqwest::Method::GET, "/v1/me", None).await?;
         if !resp.status().is_success() {
-            return Err(AuthError::Server(format!("获取账户信息失败（{}）", resp.status())));
+            return Err(AuthError::Server(format!("Couldn't load account info ({})", resp.status())));
         }
         resp.json::<Value>().await.map_err(net)
     }
@@ -210,13 +210,13 @@ impl Credentials {
             .send_authed(reqwest::Method::POST, "/v1/billing/link", Some(&json!({ "purpose": purpose, "plan": plan })))
             .await?;
         if resp.status() == StatusCode::UNAUTHORIZED {
-            return Err(AuthError::Server("请先登录".into()));
+            return Err(AuthError::Server("Please sign in first".into()));
         }
         if !resp.status().is_success() {
-            return Err(AuthError::Server(format!("打开支付页面失败（{}）", resp.status())));
+            return Err(AuthError::Server(format!("Couldn't open the checkout page ({})", resp.status())));
         }
         let v = resp.json::<Value>().await.map_err(net)?;
-        v.get("url").and_then(|u| u.as_str()).map(str::to_string).ok_or_else(|| AuthError::Server("服务端返回格式错误".into()))
+        v.get("url").and_then(|u| u.as_str()).map(str::to_string).ok_or_else(|| AuthError::Server("Unexpected server response".into()))
     }
 
     pub async fn logout(&self) {

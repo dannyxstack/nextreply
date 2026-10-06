@@ -66,7 +66,7 @@ export function Settings() {
       const saved = await saveSettings(form);
       setView(saved);
       setForm(toInput(saved));
-      setMessage({ kind: "ok", text: "已保存" });
+      setMessage({ kind: "ok", text: "Saved" });
     } catch (e) {
       setMessage({ kind: "error", text: String(e) });
     } finally {
@@ -86,11 +86,11 @@ export function Settings() {
       <section>
         <h2>General</h2>
         <label className="field">
-          <span>全局快捷键</span>
+          <span>Global shortcut</span>
           <input
             className={recording ? "recording" : ""}
             readOnly
-            value={recording ? "请按下新的快捷键…" : prettyAccelerator(form.shortcut)}
+            value={recording ? "Press the new shortcut…" : prettyAccelerator(form.shortcut)}
             onFocus={() => setRecording(true)}
             onBlur={() => setRecording(false)}
             onKeyDown={(e) => {
@@ -104,32 +104,32 @@ export function Settings() {
             }}
           />
           <small>
-            点击后按下组合键。默认 {prettyAccelerator(view.default_shortcut)}（会覆盖浏览器的"强制刷新"）。
+            Click, then press a key combination. Default: {prettyAccelerator(view.default_shortcut)} (overrides the browser's hard reload).
             {form.shortcut !== view.default_shortcut && (
               <button className="link" onClick={() => update({ shortcut: view.default_shortcut })}>
-                恢复默认
+                Reset to default
               </button>
             )}
           </small>
         </label>
         <label className="field">
-          <span>你在聊天中的显示名（可选）</span>
+          <span>Your display name in chats (optional)</span>
           <input
             value={form.display_name}
             maxLength={64}
-            placeholder="例如 Danny"
+            placeholder="e.g. Danny"
             onChange={(e) => update({ display_name: e.target.value })}
           />
-          <small>帮助 AI 在 Slack / Discord 等左对齐的聊天里分辨哪些消息是你发的。</small>
+          <small>Helps the AI tell which messages are yours in left-aligned chats like Slack or Discord.</small>
         </label>
       </section>
 
       <section>
         <h2>AI</h2>
         <label className="field">
-          <span>服务端地址</span>
+          <span>Server URL</span>
           <input value={form.server_url} onChange={(e) => update({ server_url: e.target.value })} spellCheck={false} />
-          <small>默认使用 NextReply 内置服务；暂不支持自定义 API Key。</small>
+          <small>Uses the built-in NextReply service. Custom API keys are not supported yet.</small>
         </label>
       </section>
 
@@ -142,7 +142,7 @@ export function Settings() {
         <p className="privacy">
           Screenshots are analyzed only when you trigger the shortcut. They are not continuously recorded.
           <br />
-          截图只保存在内存中，经 NextReply 服务转发给 AI 服务商分析后立即释放，不会写入磁盘或被服务端存储。
+          Screenshots stay in memory, are relayed through the NextReply service to the AI provider for analysis, and are discarded right after. They are never written to disk or stored on the server.
         </p>
       </section>
 
@@ -157,7 +157,7 @@ export function Settings() {
       <footer>
         {message && <span className={`message ${message.kind}`}>{message.text}</span>}
         <button className="primary" onClick={onSave} disabled={saving}>
-          {saving ? "保存中…" : "保存"}
+          {saving ? "Saving…" : "Save"}
         </button>
       </footer>
     </main>

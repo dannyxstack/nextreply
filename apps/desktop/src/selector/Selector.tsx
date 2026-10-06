@@ -127,13 +127,13 @@ export function Selector() {
           <span className="size">
             {isDrag
               ? `${Math.round(shown.w / cssScale(frame))} × ${Math.round(shown.h / cssScale(frame))}`
-              : "单击选择此窗口 · 拖动自定义区域"}
+              : "Click to select this window · Drag for a custom area"}
           </span>
         </div>
       ) : (
         <div className="dim" />
       )}
-      {!isDrag && <div className="hint">单击选择窗口，或拖动框选聊天区域 · Esc 取消</div>}
+      {!isDrag && <div className="hint">Click a window, or drag to select the chat area · Esc to cancel</div>}
     </div>
   );
 }

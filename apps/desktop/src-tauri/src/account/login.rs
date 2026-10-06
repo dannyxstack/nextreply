@@ -35,7 +35,7 @@ pub struct LoginRequest {
 
 /// 准备登录：开本机回调端口，生成 PKCE 参数和登录页 URL。
 pub fn prepare(creds: &Credentials) -> Result<LoginRequest, AuthError> {
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| AuthError::Server(format!("无法开启本机回调端口：{e}")))?;
+    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| AuthError::Server(format!("Couldn't open a local callback port: {e}")))?;
     let port = listener.local_addr().map_err(|e| AuthError::Server(e.to_string()))?.port();
     let verifier = random_b64url(32);
     let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
@@ -55,8 +55,8 @@ pub fn prepare(creds: &Credentials) -> Result<LoginRequest, AuthError> {
 }
 
 const DONE_PAGE: &str = "<!doctype html><meta charset=utf-8><title>NextReply</title>\
-<body style=\"font-family:system-ui,'Microsoft YaHei';display:flex;align-items:center;justify-content:center;height:100vh;margin:0\">\
-<div style=\"text-align:center\"><h2>登录成功</h2><p>可以关闭此页面，回到 NextReply。</p></div></body>";
+<body style=\"font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0\">\
+<div style=\"text-align:center\"><h2>Signed in</h2><p>You can close this page and return to NextReply.</p></div></body>";
 
 fn respond(mut stream: TcpStream, status: &str, body: &str) {
     let _ = write!(
@@ -94,17 +94,17 @@ fn wait_for_code(listener: &TcpListener, expected_state: &str) -> Result<String,
         }
         let param = |k: &str| url.query_pairs().find(|(name, _)| name == k).map(|(_, v)| v.into_owned());
         if param("state").as_deref() != Some(expected_state) {
-            respond(stream, "400 Bad Request", "登录状态不匹配，请回到 NextReply 重新登录。");
+            respond(stream, "400 Bad Request", "Sign-in state mismatch. Please go back to NextReply and sign in again.");
             continue;
         }
         let Some(code) = param("code") else {
-            respond(stream, "400 Bad Request", "缺少授权码。");
+            respond(stream, "400 Bad Request", "Missing authorization code.");
             continue;
         };
         respond(stream, "200 OK", DONE_PAGE);
         return Ok(code);
     }
-    Err(AuthError::Server("登录超时，请重新点击登录。".into()))
+    Err(AuthError::Server("Sign-in timed out. Please click Sign in again.".into()))
 }
 
 /// 等待回调并换取令牌。成功后令牌已保存。
@@ -123,7 +123,7 @@ pub async fn complete(creds: &Credentials, req: LoginRequest) -> Result<(), Auth
         .await
         .map_err(|e| AuthError::Network(e.to_string()))?;
     if !resp.status().is_success() {
-        return Err(AuthError::Server(format!("登录失败（{}），请重试。", resp.status())));
+        return Err(AuthError::Server(format!("Sign-in failed ({}), please try again.", resp.status())));
     }
     let tokens = resp.json::<TokenResponse>().await.map_err(|e| AuthError::Network(e.to_string()))?;
     creds.store_tokens(&tokens);
@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(code, "abc123");
         assert!(favicon.starts_with("HTTP/1.1 404"));
         assert!(forged.starts_with("HTTP/1.1 400"));
-        assert!(ok.starts_with("HTTP/1.1 200") && ok.contains("登录成功"));
+        assert!(ok.starts_with("HTTP/1.1 200") && ok.contains("Signed in"));
     }
 
     #[test]

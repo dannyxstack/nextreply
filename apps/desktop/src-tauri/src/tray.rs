@@ -8,7 +8,7 @@ use crate::{commands, flow};
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let title = MenuItem::with_id(app, "title", "AI Reply Assistant", false, None::<&str>)?;
-    let capture = MenuItem::with_id(app, "capture", "快捷截图", true, None::<&str>)?;
+    let capture = MenuItem::with_id(app, "capture", "Capture chat", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(
