@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "wrangler d1 migrations apply DB --local",
-    "db:migrate:remote": "wrangler d1 migrations apply DB --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "dev:mock": "wrangler dev --ip 127.0.0.1 --port 8787 --var MOCK_AI:true",
+    "test:e2e": "node scripts/e2e-account.mjs",
+    "reset:limits": "node scripts/reset-local-limits.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
