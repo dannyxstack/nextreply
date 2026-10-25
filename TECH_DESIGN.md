@@ -397,7 +397,7 @@ npm run tauri dev
 
 | 域名 | 用途 | 部署 |
 |---|---|---|
-| `nextreply.novakitestudio.com` | 网站：首页、价格、下载、隐私政策 / 服务条款 / 退款政策 | 静态文件（`apps/website/`），Cloudflare Pages 或任意静态托管 |
+| `nextreply.novakitestudio.com` | 网站：首页、价格、下载、隐私政策 / 服务条款 / 退款政策 | 静态文件（`apps/website/`）：Docker Compose（nginx，宿主机 `127.0.0.1:8041`，经 Cloudflare Tunnel 对外）或 Cloudflare Pages |
 | `nextreply-api.novakitestudio.com` | 服务端：桌面端 API、登录页、结账页、网页账户（阶段 B） | Go 服务（`PUBLIC_URL`），Cloudflare Tunnel |
 | `nextreply-admin.novakitestudio.com` | 管理后台（可选） | Cloudflare Tunnel + Cloudflare Access，只允许管理员邮箱 |
 | `nextreply.novakitestudio.com`（发信） | 登录验证码 `noreply@…`，Resend 单独验证该子域名（独立 DKIM / SPF） | |
@@ -432,10 +432,28 @@ npm run tauri dev
 
 ### 10.3 网页账户（阶段 B）
 
-- 网页登录复用邮箱验证码，签发网页会话 cookie（不走 PKCE / 本机回调）。
-- 账户页：套餐、积分各桶、今日用量、设备列表（可下线）、升级（Stripe Checkout）、管理订阅（Stripe 客户门户）、**删除账号**（删除邮箱等个人数据，用量元数据匿名化保留）。
-- 网页注册不发注册赠送：赠送在第一次从桌面端登录时按"每台设备、每个账号各一次"发放，防止在网页批量注册领额度。
-- 服务端渲染的登录页、结账结果页改为中英双语（按 `Accept-Language`）。
+服务端 `/account`（`server-go/internal/app/webaccount.go`），网站导航和价格页的"升级"都链接到这里。
+
+| 路由 | 说明 |
+|---|---|
+| `GET /account` | 未登录：邮箱登录表单；已登录：套餐、剩余次数（各桶及到期日）、今日用量 / 上限、近 30 天次数、订阅、设备列表 |
+| `POST /account/login`、`/account/verify` | 邮箱验证码两步登录（复用桌面端的验证码逻辑、频率限制和 Turnstile），成功后签发会话 cookie |
+| `POST /account/upgrade`、`/account/portal` | 签一次性票据后跳到现有的 `/billing/checkout`、`/billing/portal`（Stripe 或开发模式模拟支付） |
+| `POST /account/devices/{id}/signout` | 作废该设备的 refresh token（只限自己账号下的设备） |
+| `POST /account/logout` | 退出网页登录 |
+| `GET/POST /account/delete` | 输入邮箱确认后删除账号 |
+
+- **会话**：cookie 中是随机令牌，`web_sessions` 表只存哈希，30 天有效。`PUBLIC_URL` 为 HTTPS 时 cookie 名为 `__Host-nr_session`（`Secure`、`HttpOnly`、`SameSite=Lax`、`Path=/`、不带 `Domain`），否则为 `nr_session`（测试机 HTTP）。
+- **不用 JavaScript**：纯表单两步登录，CSP 为 `default-src 'none'`，`form-action` 只放行本站和 Stripe（启用 Turnstile 时放行其脚本域名）。
+- **CSRF**：所有 POST 要求同源（`Origin` / `Sec-Fetch-Site`），已登录的操作还要求由会话派生的表单令牌。服务端页面的 `Referrer-Policy` 为 `same-origin`（`no-referrer` 会让浏览器在表单提交时发送 `Origin: null`）。
+- **网页注册不发注册赠送**：只创建账号，不绑定设备；赠送在第一次从桌面端登录时按"每台设备、每个账号各一次"发放，防止在网页批量注册领额度。
+- **删除账号**（网页账户和管理后台共用 `DeleteUser`）：
+  1. 有 Stripe 订阅时先调用 Stripe 立即取消；取消失败则不删除（避免删号后继续扣费）。
+  2. 删除邮箱、登录令牌、网页会话、订阅记录、积分；设备回到匿名（保留"已领取注册赠送"标记）；用量记录的账户改为 `u:deleted` 并清空 IP、设备。
+  3. 在 `deleted_emails` 保存加盐的规范化邮箱哈希，同一邮箱重新注册不再送注册赠送。
+  4. Stripe 之后发来的该用户事件被忽略，不会为已删除的账号重新写入数据。
+- **语言**：服务端渲染的所有页面（桌面端登录页、结账 / 结果页、网页账户）按 `?lang=` → `nr_lang` cookie → `Accept-Language` 选择中文或英文，默认英文；文案集中在 `i18n.go`。桌面端调用的 `/v1` 接口错误信息保持英文。
+- **配置**：`WEBSITE_URL`（可选）为账户页顶栏的官网链接。
 
 ### 10.4 后续（阶段 C）
 

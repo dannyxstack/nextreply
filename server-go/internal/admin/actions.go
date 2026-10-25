@@ -225,6 +225,35 @@ func (a *Admin) setUserStatus(status string) func(context.Context, *http.Request
 	}
 }
 
+// deleteUserAction 删除账号（用户通过邮件要求删除时）：必须输入用户邮箱确认，并填写原因
+func (a *Admin) deleteUserAction(ctx context.Context, r *http.Request) (string, map[string]any, string, error) {
+	id := r.PathValue("id")
+	target := credits.UserOwner(id)
+	why, err := reason(r, true)
+	if err != nil {
+		return target, nil, "", err
+	}
+	var email string
+	err = a.db.QueryRowContext(ctx, `SELECT email FROM users WHERE id = ?`, id).Scan(&email)
+	if errors.Is(err, sql.ErrNoRows) {
+		return target, nil, "", actionError("用户不存在")
+	}
+	if err != nil {
+		return target, nil, "", err
+	}
+	if !strings.EqualFold(strings.TrimSpace(r.PostFormValue("confirm")), email) {
+		return target, nil, "", actionError("确认邮箱与账号不一致，未删除")
+	}
+	if err := a.deleteUser(ctx, id); err != nil {
+		if strings.Contains(err.Error(), "Stripe") {
+			return target, nil, "", actionError("无法在 Stripe 取消订阅，未删除；请先在 Stripe 后台处理")
+		}
+		return target, nil, "", err
+	}
+	// 审计里不记邮箱：账号删除后不应再保留个人数据
+	return target, map[string]any{"reason": why}, "账号已删除", nil
+}
+
 // revokeUserSessions 强制下线：作废该用户所有设备的 refresh token；access token 最多 15 分钟后过期。
 func (a *Admin) revokeUserSessions(ctx context.Context, r *http.Request) (string, map[string]any, string, error) {
 	id := r.PathValue("id")

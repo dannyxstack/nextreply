@@ -50,6 +50,14 @@
     <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="{{$.Path}}">
     <button type="submit" class="danger">全部下线</button>
   </form>
+  <form method="post" action="/accounts/u/{{.ID}}/delete">
+    <h3>删除账号</h3>
+    <p>用户要求删除时使用：取消 Stripe 订阅，删除邮箱、登录、积分，设备回到匿名，用量记录匿名化。不可恢复。</p>
+    <label>输入用户邮箱确认</label><input type="text" name="confirm" required autocomplete="off">
+    <label>原因（必填）</label><input type="text" name="reason" maxlength="200" required placeholder="例如：用户邮件要求删除">
+    <input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="back" value="/accounts?kind=user">
+    <button type="submit" class="danger">永久删除</button>
+  </form>
   {{end}}
 </div>
 

@@ -31,7 +31,7 @@ async function login(deviceId, email) {
   const challenge = b64url(createHash("sha256").update(verifier).digest());
   const redirect = "http://127.0.0.1:53999/callback";
   const page = await call("GET", `/auth/login?device_id=${deviceId}&redirect_uri=${encodeURIComponent(redirect)}&state=st1&code_challenge=${challenge}`);
-  check("login page renders", page.status === 200 && page.text.includes("登录 NextReply"));
+  check("login page renders", page.status === 200 && page.text.includes("Sign in to NextReply"));
   const start = await call("POST", "/auth/email/start", { body: { email } });
   check("otp start returns dev code", start.status === 200 && /^\d{6}$/.test(start.json?.dev_code ?? ""), JSON.stringify(start.json));
   const bad = await call("POST", "/auth/email/verify", { body: { email, code: "000000", device_id: deviceId, redirect_uri: redirect, state: "st1", code_challenge: challenge } });
@@ -87,7 +87,7 @@ const t4 = t1;
 const link = await call("POST", "/v1/billing/link", { token: t4.access_token, body: { purpose: "checkout", plan: "pro" } });
 check("checkout link issued", link.status === 200 && link.json?.url?.includes("/billing/checkout?ticket="));
 const checkout = await call("GET", new URL(link.json.url).pathname + new URL(link.json.url).search);
-check("mock checkout page", checkout.status === 200 && checkout.text.includes("模拟支付成功"));
+check("mock checkout page", checkout.status === 200 && checkout.text.includes("Simulate successful payment"));
 const ticketReuse = await call("GET", new URL(link.json.url).pathname + new URL(link.json.url).search);
 check("checkout ticket is single-use", ticketReuse.status === 400);
 const confirm = checkout.text.match(/name="ticket" value="([^"]+)"/)?.[1];

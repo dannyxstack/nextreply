@@ -25,6 +25,7 @@ docker compose up -d --build   # 部署，见 server-go/README.md
 
 # 网站（apps/website/）
 node build.mjs       # 生成 dist/；预览：python3 -m http.server -d dist 8080
+docker compose up -d --build   # 部署（默认 127.0.0.1:8041），见 apps/website/README.md
 
 # 桌面端（apps/desktop/）
 npm run tauri dev    # 启动应用（会自动起 vite）

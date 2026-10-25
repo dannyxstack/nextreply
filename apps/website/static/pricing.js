@@ -23,8 +23,8 @@
         "Cancel anytime",
       ],
       freeCta: "Download free",
-      paidCta: "Upgrade in the app",
-      paidNote: "Upgrade from the app: Settings → Account.",
+      paidCta: "Upgrade",
+      paidNote: "Sign in to your account to upgrade — or upgrade in the app under Settings → Account.",
       trial: (d) => `Not ready to sign up? Install the app and try ${d.trial_credits} replies without an account.`,
       loading: "Loading plans…",
       error: "Couldn't load plans right now. Please refresh the page or check again later.",
@@ -44,8 +44,8 @@
         "随时取消",
       ],
       freeCta: "免费下载",
-      paidCta: "在应用内升级",
-      paidNote: "在应用的 Settings → Account 中升级。",
+      paidCta: "升级",
+      paidNote: "登录账户即可升级，也可以在应用的 Settings → Account 中升级。",
       trial: (d) => `还不想注册？安装后不登录也能先试用 ${d.trial_credits} 次。`,
       loading: "正在加载套餐…",
       error: "暂时无法加载套餐，请刷新页面或稍后再试。",
@@ -72,8 +72,8 @@
     for (const line of p.id === "free" ? T.free(p, data) : T.paid(p)) ul.append(el("li", null, line));
     c.append(ul);
     const a = el("a", "btn" + (p.id === "free" ? "" : " primary"), p.id === "free" ? T.freeCta : T.paidCta);
-    a.href = home + "download/";
-    if (p.id !== "free") a.title = T.paidNote;
+    // 免费版去下载；付费套餐去网页账户（登录后在那里结账）
+    a.href = p.id === "free" ? home + "download/" : api.replace(/\/$/, "") + "/account?lang=" + lang;
     c.append(a);
     return c;
   }

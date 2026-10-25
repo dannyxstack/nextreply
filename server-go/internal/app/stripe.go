@@ -93,6 +93,12 @@ func (c *stripeClient) createPortal(ctx context.Context, customer, returnURL str
 	return &out, c.do(ctx, http.MethodPost, "/v1/billing_portal/sessions", url.Values{"customer": {customer}, "return_url": {returnURL}}, &out)
 }
 
+// cancelSubscription 立即取消订阅（删除账号时），不再续费
+func (c *stripeClient) cancelSubscription(ctx context.Context, id string) error {
+	var out map[string]any
+	return c.do(ctx, http.MethodDelete, "/v1/subscriptions/"+url.PathEscape(id), nil, &out)
+}
+
 func (c *stripeClient) getSubscription(ctx context.Context, id string) (*stripeSubscription, error) {
 	var out stripeSubscription
 	return &out, c.do(ctx, http.MethodGet, "/v1/subscriptions/"+url.PathEscape(id), nil, &out)

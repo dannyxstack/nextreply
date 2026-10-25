@@ -133,6 +133,8 @@ func (s *Server) deviceRegister(w http.ResponseWriter, r *http.Request) error {
 // ---------- 浏览器登录页 ----------
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) error {
+	l := pickLang(r)
+	rememberLang(w, r)
 	q := r.URL.Query()
 	p := loginParams{
 		DeviceID:      q.Get("device_id"),
@@ -142,30 +144,25 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) error {
 		TurnstileKey:  s.cfg.TurnstileSiteKey,
 	}
 	if !authn.IsValidDeviceID(p.DeviceID) || !loopbackRe.MatchString(p.RedirectURI) || p.State == "" || p.CodeChallenge == "" {
-		return writeHTML(w, http.StatusBadRequest, messagePage("登录链接无效", "请回到 NextReply 重新点击登录。"))
+		return writeHTML(w, http.StatusBadRequest, messagePage(l, tr(l, "login.badLink"), tr(l, "login.badLinkMsg")))
 	}
-	return writeHTML(w, http.StatusOK, renderLoginPage(p))
+	return writeHTML(w, http.StatusOK, renderLoginPage(p, l))
 }
 
-func (s *Server) emailStart(w http.ResponseWriter, r *http.Request) error {
-	body, err := readJSON(r)
-	if err != nil {
-		return err
-	}
-	ctx := r.Context()
-	email := str(body, "email")
+// startOTP 校验邮箱、人机验证和频率限制，生成并发送验证码。桌面端登录页和网页账户共用。
+// 开发模式且未配置邮件服务时返回验证码（显示在页面上）。
+func (s *Server) startOTP(ctx context.Context, l lang, email, turnstile, ip string) (devCode string, err error) {
 	if !isValidEmail(email) {
-		return apierr.New(apierr.BadRequest, "邮箱格式不正确。")
+		return "", apierr.New(apierr.BadRequest, tr(l, "otp.badEmail"))
 	}
 	if isDisposable(email) {
-		return apierr.New(apierr.BadRequest, "暂不支持临时邮箱，请换一个常用邮箱。")
+		return "", apierr.New(apierr.BadRequest, tr(l, "otp.disposable"))
 	}
-	ip := s.clientIP(r)
-	if ok, err := s.verifyTurnstile(ctx, str(body, "turnstile"), ip); err != nil || !ok {
+	if ok, err := s.verifyTurnstile(ctx, turnstile, ip); err != nil || !ok {
 		if err != nil {
 			slog.Warn("turnstile verify failed", "err", err.Error())
 		}
-		return apierr.New(apierr.BadRequest, "人机验证失败，请重试。")
+		return "", apierr.New(apierr.BadRequest, tr(l, "otp.captcha"))
 	}
 
 	emailNorm := normalizeEmail(email)
@@ -173,17 +170,17 @@ func (s *Server) emailStart(w http.ResponseWriter, r *http.Request) error {
 	var prevCreated int64
 	err = s.db.QueryRowContext(ctx, `SELECT created_at FROM otp_codes WHERE email_norm = ?`, emailNorm).Scan(&prevCreated)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return "", err
 	}
 	if err == nil && now-prevCreated < otpResend.Milliseconds() {
-		return apierr.New(apierr.RateLimited, "发送太频繁，请 1 分钟后再试。")
+		return "", apierr.New(apierr.RateLimited, tr(l, "otp.tooFast"))
 	}
 	ok, err := s.takeIfUnder(ctx, s.ipKey("otp", ip), otpPerIPPerDay)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if !ok {
-		return apierr.New(apierr.RateLimited, "今天请求验证码的次数太多了，请明天再试。")
+		return "", apierr.New(apierr.RateLimited, tr(l, "otp.tooMany"))
 	}
 
 	code := authn.RandomDigits(6)
@@ -191,13 +188,60 @@ func (s *Server) emailStart(w http.ResponseWriter, r *http.Request) error {
 		`INSERT INTO otp_codes (email_norm, code_hash, attempts, expires_at, created_at) VALUES (?, ?, 0, ?, ?)
 		 ON CONFLICT(email_norm) DO UPDATE SET code_hash = excluded.code_hash, attempts = 0, expires_at = excluded.expires_at, created_at = excluded.created_at`,
 		emailNorm, s.otpHash(emailNorm, code), now+otpTTL.Milliseconds(), now); err != nil {
-		return err
+		return "", err
 	}
-
-	devCode, err := s.sendLoginCode(ctx, email, code)
+	devCode, err = s.sendLoginCode(ctx, email, code)
 	if err != nil {
 		slog.Error("send login code failed", "err", err.Error())
-		return apierr.New(apierr.Internal, "验证码发送失败，请稍后再试。")
+		return "", apierr.New(apierr.Internal, tr(l, "otp.sendFailed"))
+	}
+	return devCode, nil
+}
+
+// consumeOTP 校验并消耗验证码。
+func (s *Server) consumeOTP(ctx context.Context, l lang, email, code string) error {
+	if !isValidEmail(email) || !sixDigits.MatchString(code) {
+		return apierr.New(apierr.BadRequest, tr(l, "otp.wrong"))
+	}
+	emailNorm := normalizeEmail(email)
+	var codeHash string
+	var attempts int
+	var expiresAt int64
+	err := s.db.QueryRowContext(ctx, `SELECT code_hash, attempts, expires_at FROM otp_codes WHERE email_norm = ?`, emailNorm).Scan(&codeHash, &attempts, &expiresAt)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if errors.Is(err, sql.ErrNoRows) || expiresAt < s.nowMs() {
+		return apierr.New(apierr.BadRequest, tr(l, "otp.expired"))
+	}
+	if attempts >= otpMaxAttempts {
+		return apierr.New(apierr.RateLimited, tr(l, "otp.locked"))
+	}
+	if !authn.SafeEqual(codeHash, s.otpHash(emailNorm, code)) {
+		if _, err := s.db.ExecContext(ctx, `UPDATE otp_codes SET attempts = attempts + 1 WHERE email_norm = ?`, emailNorm); err != nil {
+			return err
+		}
+		return apierr.New(apierr.BadRequest, tr(l, "otp.wrong"))
+	}
+	// 删除成功才算消耗了验证码，防止并发请求重复使用同一个验证码
+	res, err := s.db.ExecContext(ctx, `DELETE FROM otp_codes WHERE email_norm = ? AND code_hash = ?`, emailNorm, codeHash)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return apierr.New(apierr.BadRequest, tr(l, "otp.expired"))
+	}
+	return nil
+}
+
+func (s *Server) emailStart(w http.ResponseWriter, r *http.Request) error {
+	body, err := readJSON(r)
+	if err != nil {
+		return err
+	}
+	devCode, err := s.startOTP(r.Context(), pickLang(r), str(body, "email"), str(body, "turnstile"), s.clientIP(r))
+	if err != nil {
+		return err
 	}
 	resp := map[string]any{"ok": true}
 	if devCode != "" {
@@ -206,17 +250,15 @@ func (s *Server) emailStart(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, resp)
 }
 
-// signIn 找到或创建用户；把设备绑定到该用户；发放注册赠送（每台设备、每个账号各一次）。
-func (s *Server) signIn(ctx context.Context, email, deviceID, ip string) (string, error) {
-	now := s.nowMs()
+// findOrCreateUser 按规范化邮箱找到或创建用户（不涉及设备，网页登录也用它）。
+func (s *Server) findOrCreateUser(ctx context.Context, l lang, email string) (string, error) {
 	emailNorm := normalizeEmail(email)
-
 	var userID, status string
 	err := s.db.QueryRowContext(ctx, `SELECT id, status FROM users WHERE email_norm = ?`, emailNorm).Scan(&userID, &status)
 	if errors.Is(err, sql.ErrNoRows) {
 		userID, status = authn.NewUUID(), "active"
 		if _, err := s.db.ExecContext(ctx, `INSERT INTO users (id, email, email_norm, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(email_norm) DO NOTHING`,
-			userID, email, emailNorm, now); err != nil {
+			userID, email, emailNorm, s.nowMs()); err != nil {
 			return "", err
 		}
 		// 并发注册同一邮箱时以先写入的为准
@@ -226,7 +268,17 @@ func (s *Server) signIn(ctx context.Context, email, deviceID, ip string) (string
 		return "", err
 	}
 	if status != "active" {
-		return "", apierr.New(apierr.Unauthorized, "该账号已被停用，请联系客服。")
+		return "", apierr.New(apierr.Unauthorized, tr(l, "user.suspended"))
+	}
+	return userID, nil
+}
+
+// signIn 桌面端登录：找到或创建用户；把设备绑定到该用户；发放注册赠送（每台设备、每个账号各一次）。
+func (s *Server) signIn(ctx context.Context, l lang, email, deviceID, ip string) (string, error) {
+	now := s.nowMs()
+	userID, err := s.findOrCreateUser(ctx, l, email)
+	if err != nil {
+		return "", err
 	}
 
 	var bonusClaimed int
@@ -268,8 +320,13 @@ func (s *Server) signIn(ctx context.Context, email, deviceID, ip string) (string
 		}
 	}
 
-	// 注册赠送：按 source_ref 幂等保证每个账号一次；devices 标记保证每台设备一次（防止一台机器注册多个号刷额度）
-	if bonusClaimed == 0 {
+	// 注册赠送：按 source_ref 幂等保证每个账号一次；devices 标记保证每台设备一次（防止一台机器注册多个号刷额度）；
+	// 删除过账号的邮箱不再赠送（防止"删号重注册"反复领取）
+	deletedBefore, err := s.rowExists(ctx, `SELECT 1 FROM deleted_emails WHERE email_hash = ?`, s.deletedEmailHash(email))
+	if err != nil {
+		return "", err
+	}
+	if bonusClaimed == 0 && !deletedBefore {
 		exp := now + int64(credits.SignupBonusDays)*24*time.Hour.Milliseconds()
 		granted, err := s.credits.Grant(ctx, credits.UserOwner(userID), credits.GrantInput{
 			Bucket: credits.BucketBonus, Amount: credits.SignupBonus, ExpiresAt: &exp, SourceRef: "signup_bonus", Reason: "signup_bonus",
@@ -292,46 +349,18 @@ func (s *Server) emailVerify(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	ctx := r.Context()
+	l := pickLang(r)
 	email, code := str(body, "email"), str(body, "code")
 	deviceID, redirectURI := str(body, "device_id"), str(body, "redirect_uri")
 	state, challenge := str(body, "state"), str(body, "code_challenge")
-	if !isValidEmail(email) || !sixDigits.MatchString(code) {
-		return apierr.New(apierr.BadRequest, "验证码不正确。")
-	}
 	if !authn.IsValidDeviceID(deviceID) || !loopbackRe.MatchString(redirectURI) || state == "" || challenge == "" {
-		return apierr.New(apierr.BadRequest, "登录链接无效，请回到 NextReply 重新点击登录。")
+		return apierr.New(apierr.BadRequest, tr(l, "login.badLinkMsg"))
 	}
-
-	emailNorm := normalizeEmail(email)
-	var codeHash string
-	var attempts int
-	var expiresAt int64
-	err = s.db.QueryRowContext(ctx, `SELECT code_hash, attempts, expires_at FROM otp_codes WHERE email_norm = ?`, emailNorm).Scan(&codeHash, &attempts, &expiresAt)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := s.consumeOTP(ctx, l, email, code); err != nil {
 		return err
 	}
-	if errors.Is(err, sql.ErrNoRows) || expiresAt < s.nowMs() {
-		return apierr.New(apierr.BadRequest, "验证码已过期，请重新获取。")
-	}
-	if attempts >= otpMaxAttempts {
-		return apierr.New(apierr.RateLimited, "错误次数太多，请重新获取验证码。")
-	}
-	if !authn.SafeEqual(codeHash, s.otpHash(emailNorm, code)) {
-		if _, err := s.db.ExecContext(ctx, `UPDATE otp_codes SET attempts = attempts + 1 WHERE email_norm = ?`, emailNorm); err != nil {
-			return err
-		}
-		return apierr.New(apierr.BadRequest, "验证码不正确。")
-	}
-	// 删除成功才算消耗了验证码，防止并发请求重复使用同一个验证码
-	res, err := s.db.ExecContext(ctx, `DELETE FROM otp_codes WHERE email_norm = ? AND code_hash = ?`, emailNorm, codeHash)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return apierr.New(apierr.BadRequest, "验证码已过期，请重新获取。")
-	}
 
-	userID, err := s.signIn(ctx, email, deviceID, s.clientIP(r))
+	userID, err := s.signIn(ctx, l, email, deviceID, s.clientIP(r))
 	if err != nil {
 		return err
 	}

@@ -20,11 +20,12 @@
 <body data-api="{{apiUrl}}" data-lang="{{lang}}">
 <header class="top">
   <div class="wrap">
-    <a class="logo" href="{{home}}"><img src="/favicon.svg" alt="" width="24" height="24"> NextReply</a>
+    <a class="logo" href="{{home}}" aria-label="NextReply"><img src="/favicon.svg" alt="" width="24" height="24"> <span>NextReply</span></a>
     <nav>
       <a href="{{home}}"{{{nav.index}}}>{{t.nav.home}}</a>
       <a href="{{home}}pricing/"{{{nav.pricing}}}>{{t.nav.pricing}}</a>
       <a href="{{home}}download/"{{{nav.download}}}>{{t.nav.download}}</a>
+      <a href="{{apiUrl}}/account?lang={{lang}}">{{t.nav.account}}</a>
       <a class="lang" href="{{altUrl}}" hreflang="{{altLang}}" lang="{{altLang}}">{{t.switchTo}}</a>
     </nav>
   </div>
@@ -43,6 +44,7 @@
       <h4>{{t.footer.product}}</h4>
       <a href="{{home}}pricing/">{{t.nav.pricing}}</a>
       <a href="{{home}}download/">{{t.nav.download}}</a>
+      <a href="{{apiUrl}}/account?lang={{lang}}">{{t.footer.account}}</a>
     </div>
     <div>
       <h4>{{t.footer.legal}}</h4>

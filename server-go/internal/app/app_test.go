@@ -280,7 +280,7 @@ func (h *harness) login(email, device string) map[string]any {
 	redirect := "http://127.0.0.1:53123/callback"
 
 	page := h.do("GET", "/auth/login?"+url.Values{"device_id": {device}, "redirect_uri": {redirect}, "state": {"st"}, "code_challenge": {challenge}}.Encode(), "", nil)
-	if page.status != 200 || !strings.Contains(page.raw, "登录 NextReply") {
+	if page.status != 200 || !strings.Contains(page.raw, "Sign in to NextReply") {
 		h.t.Fatal(page.status)
 	}
 
@@ -391,7 +391,7 @@ func TestDevSubscriptionFlow(t *testing.T) {
 	link := h.do("POST", "/v1/billing/link", access, map[string]any{"plan": "pro"})
 	u, _ := url.Parse(link.body["url"].(string))
 	checkout := h.do("GET", u.RequestURI(), "", nil)
-	if checkout.status != 200 || !strings.Contains(checkout.raw, "模拟支付") {
+	if checkout.status != 200 || !strings.Contains(checkout.raw, "Simulate successful payment") {
 		t.Fatal(checkout.status, checkout.raw)
 	}
 	// 票据只能用一次

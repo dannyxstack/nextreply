@@ -61,7 +61,9 @@ ssh -N -L 8788:127.0.0.1:8787 <用户>@<服务器>
 | `internal/app/reply.go` | `/v1/reply`：IP 限额 → 预扣 → 按套餐选模型调用 → 确认 / 退还 |
 | `internal/app/account.go` · `identity.go` | 设备注册、邮箱验证码登录（PKCE）、令牌、`/v1/me`、调用方识别 |
 | `internal/app/billing.go` · `stripe.go` | 结账链接、Stripe webhook、开发模式模拟支付 |
-| `internal/app/pages.go` | 服务端渲染的登录页、结果页 |
+| `internal/app/pages.go` · `i18n.go` | 服务端渲染页面的外壳和桌面端登录页；全部中英文案在 `i18n.go` |
+| `internal/app/webaccount.go` · `websession.go` | 网页账户 `/account`：两步邮箱登录、会话 cookie、升级 / 管理订阅、下线设备、删除账号 |
+| `internal/app/deleteaccount.go` | 删除账号（网页账户和管理后台共用）：先取消 Stripe 订阅，再删除个人数据 |
 | `internal/ai/` | Prompt、结构化输出 schema（协议）、Claude 调用、成本估算价目表（`pricing.go`） |
 | `internal/admin/` | 管理后台：查询（`queries.go`）、页面模板（`templates/`）；监听 `ADMIN_ADDR`，Basic 认证 |
 | `internal/credits/` | 套餐数值（`plans.go`）、扣费纯函数（`allocate.go`）、积分账户（`service.go`） |

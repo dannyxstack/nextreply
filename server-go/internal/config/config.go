@@ -29,6 +29,8 @@ type Config struct {
 
 	// 对外地址，用于生成登录 / 结账链接
 	PublicURL string
+	// 产品网站地址，网页账户页的顶栏链接回官网；留空不显示
+	WebsiteURL string
 	// 本地开发模式：没配邮件服务时把验证码显示在页面上；没配 Stripe 时提供模拟支付。线上必须为 false
 	DevMode bool
 	// 开发测试用：不调用模型，返回固定结果（只在 DevMode 下生效）
@@ -68,6 +70,7 @@ func FromEnv() (*Config, error) {
 		IPDailyQuota:        intEnv("IP_DAILY_QUOTA", 200),
 		RegisterPerIP:       intEnv("REGISTER_PER_IP", 20),
 		PublicURL:           strings.TrimRight(env("PUBLIC_URL", "http://127.0.0.1:8787"), "/"),
+		WebsiteURL:          strings.TrimRight(os.Getenv("WEBSITE_URL"), "/"),
 		DevMode:             os.Getenv("DEV_MODE") == "true",
 		ClientIPHeader:      os.Getenv("CLIENT_IP_HEADER"),
 		AdminToken:          os.Getenv("ADMIN_TOKEN"),

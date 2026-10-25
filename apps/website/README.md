@@ -11,6 +11,7 @@
 apps/website/
 ├── site.json            网站地址、API 地址、下载链接、联系邮箱、法律页面是否为草稿
 ├── build.mjs            把布局套到各页面正文上，输出 dist/
+├── Dockerfile · docker-compose.yml · nginx.conf.template · .env.example   Docker 部署
 ├── src/
 │   ├── layout.html      页头、页脚、语言切换、hreflang
 │   ├── i18n.json        布局里的文案（导航、页脚等）
@@ -31,12 +32,29 @@ python3 -m http.server -d dist 8080            # 打开 http://127.0.0.1:8080
 ## 修改内容
 
 - **页面文字**：改 `src/pages/en/` 和 `src/pages/zh/` 下对应的文件，两种语言都要改。
+- **账户**：导航的"Account"和价格页的"Upgrade"链接到服务端的网页账户 `{{apiUrl}}/account`（TECH_DESIGN §10.3）。
 - **价格**：不在网站里写。价格页运行时请求服务端 `GET /v1/plans`；每日上限、体验额度等在管理后台的「运行配置」里改，价格和每月次数在 `server-go/internal/credits/plans.go`。
 - **下载链接**：填 `site.json` 的 `downloads.windows.url` / `version`，留空时按钮显示"即将推出"。
 - **法律页面**：主体、地址、适用法律等确认后，替换页面中的 `[… to be confirmed]` / `[…待确认]`，填写 `contactEmail`，把 `legalDraft` 改为 `false` 并更新 `legalUpdated`。上线前请法务审阅。
 - 页面里可以用 `{{key}}` 引用 `site.json` / `i18n.json` 的值（会转义），`{{{key}}}` 插入 HTML。引用不存在的键会让构建失败。
 
-## 部署（Cloudflare Pages）
+## 部署方式一：Docker Compose
+
+在服务器上（与服务端同一台或另一台）：
+
+```bash
+cd apps/website
+cp .env.example .env        # 设置 API_URL（服务端地址），按需设置 BIND_ADDR / PORT
+docker compose up -d --build
+curl -I http://127.0.0.1:8041/
+```
+
+- 镜像分两阶段：`node build.mjs --api $API_URL` 生成页面，`nginx:alpine` 提供静态文件；安全响应头写在 `nginx.conf.template`，与 `static/_headers` 保持一致，`API_URL` 会同时写进 CSP 的 `connect-src`。
+- 默认只监听宿主机 `127.0.0.1:8041`。生产环境用 Cloudflare Tunnel 把 `nextreply.novakitestudio.com` 转发到 `http://localhost:8041`（或宿主机 nginx 反向代理并负责 HTTPS）。
+- 测试机局域网直接访问：`.env` 中设置 `BIND_ADDR=0.0.0.0`、`API_URL=http://<机器 IP>:8787`（服务端也要设置 `BIND_ADDR=0.0.0.0`）。
+- 改了页面内容或 `API_URL` 后重新执行 `docker compose up -d --build`。
+
+## 部署方式二：Cloudflare Pages
 
 1. Cloudflare Pages 连接本仓库：根目录 `apps/website`，构建命令 `node build.mjs`，输出目录 `dist`。
 2. 自定义域名 `nextreply.novakitestudio.com`。
@@ -44,3 +62,5 @@ python3 -m http.server -d dist 8080            # 打开 http://127.0.0.1:8080
 4. 可选：开启 Cloudflare Web Analytics（不写 cookie，不需要同意框）。
 
 其他静态托管同样可用：上传 `dist/`，并按 `_headers` 配置响应头。
+
+修改安全响应头时，`static/_headers`（Cloudflare Pages）和 `nginx.conf.template`（Docker）两处都要改。

@@ -77,7 +77,7 @@ func setupEnv(t *testing.T) env {
 		post("/v1/reply", dev, img)
 	}
 
-	adm, err := New(cfg, db, srv.Credits(), srv.Settings(), srv.IPLimits)
+	adm, err := New(cfg, db, srv.Credits(), srv.Settings(), srv.IPLimits, srv.DeleteUser)
 	if err != nil {
 		t.Fatal(err)
 	}

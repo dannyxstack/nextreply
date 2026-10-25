@@ -1,0 +1,26 @@
+# NextReply 网站。${API_URL} 在容器启动时替换。
+server {
+    listen 80;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+    server_tokens off;
+    # /pricing → /pricing/ 的跳转用相对地址，经过端口映射 / 反向代理也正确
+    absolute_redirect off;
+    # 网站不需要访问日志（统计用不写 cookie 的 Cloudflare Web Analytics）
+    access_log off;
+
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' ${API_URL}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # 样式、脚本、图标没有带版本号，缓存时间不宜太长
+    location ~* \.(css|js|svg)$ {
+        expires 1h;
+    }
+}

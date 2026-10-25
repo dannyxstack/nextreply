@@ -78,6 +78,17 @@ func (s *Server) Handler() http.Handler {
 	h("POST /v1/auth/logout", maxJSONBody, s.authLogout)
 	h("GET /v1/me", 0, s.me)
 
+	// 网页账户（TECH_DESIGN §10.3）
+	h("GET /account", 0, s.accountHome)
+	h("POST /account/login", maxJSONBody, s.accountLogin)
+	h("POST /account/verify", maxJSONBody, s.accountVerify)
+	h("POST /account/logout", maxJSONBody, s.accountLogout)
+	h("POST /account/upgrade", maxJSONBody, s.accountUpgrade)
+	h("POST /account/portal", maxJSONBody, s.accountPortal)
+	h("POST /account/devices/{id}/signout", maxJSONBody, s.accountDeviceSignout)
+	h("GET /account/delete", 0, s.accountDeleteForm)
+	h("POST /account/delete", maxJSONBody, s.accountDelete)
+
 	h("POST /v1/billing/link", maxJSONBody, s.billingLink)
 	h("GET /billing/checkout", 0, s.billingCheckout)
 	h("POST /billing/dev/complete", maxJSONBody, s.devComplete)
@@ -135,7 +146,9 @@ func writeHTML(w http.ResponseWriter, status int, body string) error {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	// 不用 no-referrer：那样浏览器提交表单时发送 Origin: null，网页账户的同源校验会拒绝正常操作。
+	// same-origin 同样不会把带票据的地址泄露给 Stripe 等外部站点。
+	w.Header().Set("Referrer-Policy", "same-origin")
 	w.WriteHeader(status)
 	_, err := io.WriteString(w, body)
 	return err

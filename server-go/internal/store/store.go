@@ -127,6 +127,7 @@ func Cleanup(ctx context.Context, db *sql.DB, now time.Time) error {
 		{`DELETE FROM web_tickets WHERE expires_at < ?`, ms - day},
 		{`DELETE FROM ip_counters WHERE expires_at < ?`, ms},
 		{`DELETE FROM refresh_tokens WHERE expires_at < ?`, ms - 30*day},
+		{`DELETE FROM web_sessions WHERE expires_at < ?`, ms},
 	}
 	for _, s := range stmts {
 		if _, err := db.ExecContext(ctx, s.sql, s.arg); err != nil {

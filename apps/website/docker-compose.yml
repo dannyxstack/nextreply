@@ -1,0 +1,23 @@
+# NextReply 网站（静态页面 + nginx）。
+#
+#   cp .env.example .env    # 按需修改 API_URL / 端口
+#   docker compose up -d --build
+#
+# 生产环境由 Cloudflare Tunnel / 宿主机 nginx 提供 HTTPS 并转发到本机端口（见 README）。
+
+services:
+  website:
+    build:
+      context: .
+      args:
+        API_URL: ${API_URL:-https://nextreply-api.novakitestudio.com}
+    image: nextreply-website:latest
+    restart: unless-stopped
+    # 默认只对本机开放；测试机需要局域网访问时在 .env 中设置 BIND_ADDR=0.0.0.0
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-8041}:80"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -3,6 +3,7 @@
 package admin
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -35,12 +36,14 @@ type Admin struct {
 	// 每次启动随机生成的 CSRF 令牌（见 checkCSRF）；重启后旧页面上的表单需要刷新
 	csrf     string
 	ipLimits func() map[string]int
-	loc      *time.Location
-	now      func() time.Time
-	pages    map[string]*template.Template
+	// 删除账号由 app 包实现（取消 Stripe 订阅、删除个人数据），后台和网页账户共用
+	deleteUser func(ctx context.Context, userID string) error
+	loc        *time.Location
+	now        func() time.Time
+	pages      map[string]*template.Template
 }
 
-func New(cfg *config.Config, db *sql.DB, svc *credits.Service, st *settings.Store, ipLimits func() map[string]int) (*Admin, error) {
+func New(cfg *config.Config, db *sql.DB, svc *credits.Service, st *settings.Store, ipLimits func() map[string]int, deleteUser func(context.Context, string) error) (*Admin, error) {
 	loc, err := time.LoadLocation(cfg.AdminTZ)
 	if err != nil {
 		return nil, fmt.Errorf("ADMIN_TZ: %w", err)
@@ -49,7 +52,7 @@ func New(cfg *config.Config, db *sql.DB, svc *credits.Service, st *settings.Stor
 	if _, err := rand.Read(buf); err != nil {
 		return nil, err
 	}
-	a := &Admin{db: db, cfg: cfg, credits: svc, settings: st, csrf: hex.EncodeToString(buf), ipLimits: ipLimits, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
+	a := &Admin{db: db, cfg: cfg, credits: svc, settings: st, deleteUser: deleteUser, csrf: hex.EncodeToString(buf), ipLimits: ipLimits, loc: loc, now: time.Now, pages: map[string]*template.Template{}}
 	funcs := template.FuncMap{
 		"time":      a.fmtTime,
 		"usd":       fmtUSD,
@@ -102,6 +105,7 @@ func (a *Admin) Handler() http.Handler {
 	mux.HandleFunc("POST /accounts/{kind}/{id}/grant", a.action("grant_credits", a.grantCredits))
 	mux.HandleFunc("POST /accounts/u/{id}/suspend", a.action("suspend_user", a.setUserStatus("suspended")))
 	mux.HandleFunc("POST /accounts/u/{id}/restore", a.action("restore_user", a.setUserStatus("active")))
+	mux.HandleFunc("POST /accounts/u/{id}/delete", a.action("delete_user", a.deleteUserAction))
 	mux.HandleFunc("POST /accounts/u/{id}/revoke-sessions", a.action("revoke_sessions", a.revokeUserSessions))
 	mux.HandleFunc("POST /devices/{id}/revoke-sessions", a.action("revoke_sessions", a.revokeDeviceSessions))
 	mux.HandleFunc("POST /devices/{id}/unbind", a.action("unbind_device", a.unbindDevice))
@@ -271,7 +275,7 @@ func planLabel(p any) string {
 func actionLabel(action string) string {
 	labels := map[string]string{
 		"grant_credits": "补发积分", "suspend_user": "停用账号", "restore_user": "恢复账号",
-		"revoke_sessions": "强制下线", "unbind_device": "解绑设备", "update_settings": "修改配置",
+		"revoke_sessions": "强制下线", "unbind_device": "解绑设备", "update_settings": "修改配置", "delete_user": "删除账号",
 	}
 	if l, ok := labels[action]; ok {
 		return l

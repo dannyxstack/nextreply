@@ -450,3 +450,18 @@ func (s *Service) ExpireAllStaleHolds(ctx context.Context) error {
 		return expireStaleHolds(ctx, tx, "", s.now().UnixMilli())
 	})
 }
+
+// DeleteOwner 删除一个账户的全部积分数据（删除账号时使用）。
+func (s *Service) DeleteOwner(ctx context.Context, owner string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.recent, owner)
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		for _, table := range []string{"credit_grants", "credit_ledger", "credit_holds", "credit_usage_day"} {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM `+table+` WHERE owner = ?`, owner); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}

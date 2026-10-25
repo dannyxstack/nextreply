@@ -346,3 +346,36 @@ func TestOverviewBanners(t *testing.T) {
 		t.Fatal("cost cap banner")
 	}
 }
+
+func TestAdminDeleteUser(t *testing.T) {
+	e := setupEnv(t)
+	userID, _, refresh := login(t, e, "device-dddddddddddd-0001", "gone@example.com")
+	page := "/accounts/u/" + userID
+	csrf := csrfToken(t, e.h, page)
+
+	if _, loc := post(t, e.h, page+"/delete", url.Values{"csrf": {csrf}, "confirm": {"wrong@example.com"}, "reason": {"用户要求"}}); !strings.Contains(flash(loc), "不一致") {
+		t.Fatal(flash(loc))
+	}
+	if _, loc := post(t, e.h, page+"/delete", url.Values{"csrf": {csrf}, "confirm": {"gone@example.com"}, "reason": {""}}); !strings.Contains(flash(loc), "原因") {
+		t.Fatal(flash(loc))
+	}
+	if _, loc := post(t, e.h, page+"/delete", url.Values{"csrf": {csrf}, "confirm": {"Gone@Example.com"}, "reason": {"用户邮件要求删除"}, "back": {"/accounts?kind=user"}}); flash(loc) != "账号已删除" {
+		t.Fatal(flash(loc))
+	}
+	var n int
+	e.db.QueryRow(`SELECT COUNT(*) FROM users WHERE id = ?`, userID).Scan(&n)
+	if n != 0 {
+		t.Fatal("user still exists")
+	}
+	if code, _ := apiCall(t, e, "POST", "/v1/auth/refresh", "", map[string]any{"refresh_token": refresh, "device_id": "device-dddddddddddd-0001"}); code != 401 {
+		t.Fatal("session survived")
+	}
+	var detail string
+	e.db.QueryRow(`SELECT detail FROM admin_audit WHERE action = 'delete_user'`).Scan(&detail)
+	if strings.Contains(detail, "gone@") || !strings.Contains(detail, "用户邮件要求删除") {
+		t.Fatal("audit must keep the reason but not the email:", detail)
+	}
+	if code, _ := get(t, e.h, page, true); code != 404 {
+		t.Fatal("deleted account page should 404")
+	}
+}

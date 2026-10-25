@@ -171,24 +171,32 @@ func (s *Server) billingLink(w http.ResponseWriter, r *http.Request) error {
 	return writeJSON(w, http.StatusOK, map[string]any{"url": s.publicURL("/billing/checkout?ticket=" + ticket + "&plan=" + body.Plan)})
 }
 
+// billingPage 结账流程里的提示页，带"返回账户页"链接（结账可以从桌面端或网页账户发起）
+func (s *Server) billingPage(w http.ResponseWriter, status int, l lang, titleKey, msgKey string) error {
+	body := "<h1>" + esc(tr(l, titleKey)) + "</h1><p>" + esc(tr(l, msgKey)) + "</p>" +
+		`<a class="button secondary" href="/account">` + esc(tr(l, "bill.backAccount")) + "</a>"
+	return writeHTML(w, status, page(l, tr(l, titleKey), body, ""))
+}
+
 func (s *Server) billingCheckout(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
+	l := pickLang(r)
 	plan := r.URL.Query().Get("plan")
 	if !credits.IsPaidPlan(plan) {
-		return writeHTML(w, http.StatusBadRequest, messagePage("链接无效", "未知的套餐。"))
+		return writeHTML(w, http.StatusBadRequest, messagePage(l, tr(l, "bill.badLink"), tr(l, "bill.unknownPlan")))
 	}
 	userID, err := s.useTicket(ctx, r.URL.Query().Get("ticket"), "checkout")
 	if err != nil {
 		return err
 	}
 	if userID == "" {
-		return writeHTML(w, http.StatusBadRequest, messagePage("链接已失效", "请回到 NextReply 重新点击升级。"))
+		return s.billingPage(w, http.StatusBadRequest, l, "bill.expired", "bill.expiredMsg")
 	}
 
 	if sc := s.stripe(); sc != nil {
 		price := s.priceFor(plan)
 		if price == "" {
-			return writeHTML(w, http.StatusServiceUnavailable, messagePage("暂不可用", "该套餐尚未开放购买。"))
+			return s.billingPage(w, http.StatusServiceUnavailable, l, "bill.unavailable", "bill.planClosed")
 		}
 		var email string
 		if err := s.db.QueryRowContext(ctx, `SELECT email FROM users WHERE id = ?`, userID).Scan(&email); err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -210,6 +218,9 @@ func (s *Server) billingCheckout(w http.ResponseWriter, r *http.Request) error {
 			"success_url":                          {s.publicURL("/billing/done?status=success")},
 			"cancel_url":                           {s.publicURL("/billing/done?status=cancel")},
 		}
+		if l == langZH {
+			form.Set("locale", "zh")
+		}
 		if sub != nil && sub.CustomerID.Valid {
 			form.Set("customer", sub.CustomerID.String)
 		} else if email != "" {
@@ -218,7 +229,7 @@ func (s *Server) billingCheckout(w http.ResponseWriter, r *http.Request) error {
 		session, err := sc.createCheckout(ctx, form)
 		if err != nil {
 			slog.Error("stripe checkout failed", "err", err.Error())
-			return writeHTML(w, http.StatusBadGateway, messagePage("暂不可用", "支付服务暂时不可用，请稍后再试。"))
+			return s.billingPage(w, http.StatusBadGateway, l, "bill.unavailable", "bill.payDown")
 		}
 		target := session.URL
 		if target == "" {
@@ -229,27 +240,29 @@ func (s *Server) billingCheckout(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	if !s.cfg.DevMode {
-		return writeHTML(w, http.StatusServiceUnavailable, messagePage("暂不可用", "支付服务尚未开通。"))
+		return s.billingPage(w, http.StatusServiceUnavailable, l, "bill.unavailable", "bill.payOff")
 	}
-	p := credits.Plans[credits.PlanID(plan)]
+	p := s.settings.Plan(credits.PlanID(plan))
 	confirm, err := s.createTicket(ctx, userID, "dev_complete")
 	if err != nil {
 		return err
 	}
-	return writeHTML(w, http.StatusOK, page("模拟支付", fmt.Sprintf(`<h1>模拟支付（开发模式）</h1>
-<p>未配置 Stripe，这里模拟一次订阅付款，不会产生真实扣费。</p>
-<div class="plan"><b>%s</b> · $%.2f/月<br/><span style="color:var(--muted);font-size:13px">每月 %d 次，每天最多 %d 次</span></div>
+	return writeHTML(w, http.StatusOK, page(l, tr(l, "bill.mockTitle"), fmt.Sprintf(`<h1>%s</h1>
+<p>%s</p>
+<div class="plan"><b>%s</b> · $%.2f<br/><span style="color:var(--muted);font-size:13px">%s</span></div>
 <form method="post" action="/billing/dev/complete">
   <input type="hidden" name="ticket" value="%s" />
   <input type="hidden" name="plan" value="%s" />
-  <button type="submit">模拟支付成功</button>
-</form>`, esc(p.Label), p.PriceUSD, p.MonthlyCredits, p.DailyCap, esc(confirm), esc(plan)), ""))
+  <button type="submit">%s</button>
+</form>`, esc(tr(l, "bill.mockHeading")), esc(tr(l, "bill.mockIntro")), esc(tr(l, "plan."+plan)), p.PriceUSD,
+		esc(tr(l, "bill.mockPlan", p.MonthlyCredits, p.DailyCap)), esc(confirm), esc(plan), esc(tr(l, "bill.mockPay"))), ""))
 }
 
 // devComplete 开发模式：模拟付款成功 → 开通订阅并发放本周期积分。
 func (s *Server) devComplete(w http.ResponseWriter, r *http.Request) error {
+	l := pickLang(r)
 	if !s.cfg.DevMode || s.cfg.StripeSecretKey != "" {
-		return writeHTML(w, http.StatusNotFound, messagePage("不可用", "仅开发模式可用。"))
+		return writeHTML(w, http.StatusNotFound, messagePage(l, tr(l, "bill.unavailable"), tr(l, "bill.devOnly")))
 	}
 	ctx := r.Context()
 	plan := r.PostFormValue("plan")
@@ -258,7 +271,7 @@ func (s *Server) devComplete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if userID == "" || !credits.IsPaidPlan(plan) {
-		return writeHTML(w, http.StatusBadRequest, messagePage("链接已失效", "请回到 NextReply 重新点击升级。"))
+		return s.billingPage(w, http.StatusBadRequest, l, "bill.expired", "bill.expiredMsg")
 	}
 	now := s.nowMs()
 	end := now + devPeriod.Milliseconds()
@@ -277,12 +290,13 @@ func (s *Server) devComplete(w http.ResponseWriter, r *http.Request) error {
 
 func (s *Server) billingPortal(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
+	l := pickLang(r)
 	userID, err := s.useTicket(ctx, r.URL.Query().Get("ticket"), "portal")
 	if err != nil {
 		return err
 	}
 	if userID == "" {
-		return writeHTML(w, http.StatusBadRequest, messagePage("链接已失效", "请回到 NextReply 重新打开。"))
+		return s.billingPage(w, http.StatusBadRequest, l, "bill.expired", "bill.expiredMsg")
 	}
 	sub, err := getSubscription(ctx, s.db, userID)
 	if err != nil {
@@ -292,13 +306,13 @@ func (s *Server) billingPortal(w http.ResponseWriter, r *http.Request) error {
 		session, err := sc.createPortal(ctx, sub.CustomerID.String, s.publicURL("/billing/done?status=portal"))
 		if err != nil {
 			slog.Error("stripe portal failed", "err", err.Error())
-			return writeHTML(w, http.StatusBadGateway, messagePage("暂不可用", "支付服务暂时不可用，请稍后再试。"))
+			return s.billingPage(w, http.StatusBadGateway, l, "bill.unavailable", "bill.payDown")
 		}
 		http.Redirect(w, r, session.URL, http.StatusSeeOther)
 		return nil
 	}
 	if !s.cfg.DevMode || sub == nil {
-		return writeHTML(w, http.StatusNotFound, messagePage("没有订阅", "当前账号没有可管理的订阅。"))
+		return s.billingPage(w, http.StatusNotFound, l, "bill.noSub", "bill.noSubMsg")
 	}
 	t1, err := s.createTicket(ctx, userID, "dev_cancel")
 	if err != nil {
@@ -308,48 +322,47 @@ func (s *Server) billingPortal(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	label := sub.Plan
-	if p, ok := credits.Plans[credits.PlanID(sub.Plan)]; ok {
-		label = p.Label
-	}
 	cancelNote := ""
 	if sub.CancelAtPeriodEnd {
-		cancelNote = " · 到期后取消"
+		cancelNote = tr(l, "bill.mockEnding")
 	}
-	return writeHTML(w, http.StatusOK, page("管理订阅", fmt.Sprintf(`<h1>管理订阅（开发模式）</h1>
-<p>当前：%s · %s%s</p>
-<form method="post" action="/billing/dev/cancel"><input type="hidden" name="ticket" value="%s" /><button type="submit" class="secondary">到期后取消订阅</button></form>
-<form method="post" action="/billing/dev/expire"><input type="hidden" name="ticket" value="%s" /><button type="submit" class="secondary">立即结束（模拟到期 / 退款）</button></form>`,
-		esc(label), esc(sub.Status), cancelNote, esc(t1), esc(t2)), ""))
+	return writeHTML(w, http.StatusOK, page(l, tr(l, "acct.manage"), fmt.Sprintf(`<h1>%s</h1>
+<p>%s</p>
+<form method="post" action="/billing/dev/cancel"><input type="hidden" name="ticket" value="%s" /><button type="submit" class="secondary">%s</button></form>
+<form method="post" action="/billing/dev/expire"><input type="hidden" name="ticket" value="%s" /><button type="submit" class="secondary">%s</button></form>`,
+		esc(tr(l, "bill.mockManage")), esc(tr(l, "bill.mockCurrent", tr(l, "plan."+sub.Plan), sub.Status, cancelNote)),
+		esc(t1), esc(tr(l, "bill.mockCancel")), esc(t2), esc(tr(l, "bill.mockExpire"))), ""))
 }
 
 func (s *Server) devCancel(w http.ResponseWriter, r *http.Request) error {
+	l := pickLang(r)
 	if !s.cfg.DevMode {
-		return writeHTML(w, http.StatusNotFound, messagePage("不可用", "仅开发模式可用。"))
+		return writeHTML(w, http.StatusNotFound, messagePage(l, tr(l, "bill.unavailable"), tr(l, "bill.devOnly")))
 	}
 	userID, err := s.useTicket(r.Context(), r.PostFormValue("ticket"), "dev_cancel")
 	if err != nil {
 		return err
 	}
 	if userID == "" {
-		return writeHTML(w, http.StatusBadRequest, messagePage("链接已失效", "请重新打开。"))
+		return s.billingPage(w, http.StatusBadRequest, l, "bill.expired", "bill.expiredMsg")
 	}
 	if _, err := s.db.ExecContext(r.Context(), `UPDATE subscriptions SET cancel_at_period_end = 1, updated_at = ? WHERE user_id = ?`, s.nowMs(), userID); err != nil {
 		return err
 	}
-	return writeHTML(w, http.StatusOK, messagePage("已设置到期后取消", "本周期内仍可使用剩余额度。回到 NextReply 刷新即可看到。"))
+	return s.billingPage(w, http.StatusOK, l, "bill.cancelSet", "bill.cancelMsg")
 }
 
 func (s *Server) devExpire(w http.ResponseWriter, r *http.Request) error {
+	l := pickLang(r)
 	if !s.cfg.DevMode {
-		return writeHTML(w, http.StatusNotFound, messagePage("不可用", "仅开发模式可用。"))
+		return writeHTML(w, http.StatusNotFound, messagePage(l, tr(l, "bill.unavailable"), tr(l, "bill.devOnly")))
 	}
 	userID, err := s.useTicket(r.Context(), r.PostFormValue("ticket"), "dev_expire")
 	if err != nil {
 		return err
 	}
 	if userID == "" {
-		return writeHTML(w, http.StatusBadRequest, messagePage("链接已失效", "请重新打开。"))
+		return s.billingPage(w, http.StatusBadRequest, l, "bill.expired", "bill.expiredMsg")
 	}
 	if _, err := s.db.ExecContext(r.Context(), `UPDATE subscriptions SET status = 'canceled', updated_at = ? WHERE user_id = ?`, s.nowMs(), userID); err != nil {
 		return err
@@ -357,17 +370,18 @@ func (s *Server) devExpire(w http.ResponseWriter, r *http.Request) error {
 	if err := s.revokeSubscriptionCredits(r.Context(), userID); err != nil {
 		return err
 	}
-	return writeHTML(w, http.StatusOK, messagePage("订阅已结束", "已回到免费套餐，订阅积分已收回。回到 NextReply 刷新即可看到。"))
+	return s.billingPage(w, http.StatusOK, l, "bill.ended", "bill.endedMsg")
 }
 
 func (s *Server) billingDone(w http.ResponseWriter, r *http.Request) error {
+	l := pickLang(r)
 	switch r.URL.Query().Get("status") {
 	case "success":
-		return writeHTML(w, http.StatusOK, messagePage("支付成功", "订阅已开通，回到 NextReply 即可使用。积分可能需要几秒钟到账。"))
+		return s.billingPage(w, http.StatusOK, l, "bill.success", "bill.successMsg")
 	case "portal":
-		return writeHTML(w, http.StatusOK, messagePage("已返回", "回到 NextReply 刷新即可看到最新状态。"))
+		return s.billingPage(w, http.StatusOK, l, "bill.returned", "bill.returnedMsg")
 	}
-	return writeHTML(w, http.StatusOK, messagePage("已取消支付", "没有产生任何扣费，可以回到 NextReply。"))
+	return s.billingPage(w, http.StatusOK, l, "bill.cancelled", "bill.noCharge")
 }
 
 // ---------- Stripe webhook ----------
@@ -390,6 +404,10 @@ func (s *Server) syncSubscription(ctx context.Context, sub *stripeSubscription) 
 	}
 	if userID == "" || plan == "" {
 		return nil
+	}
+	// 账号已删除（删号时会取消订阅，Stripe 随后仍会发来事件）：忽略，不能重新写入数据
+	if ok, err := s.userExists(ctx, userID); err != nil || !ok {
+		return err
 	}
 	start, end := sub.period()
 	return s.upsertSubscription(ctx, subscriptionUpsert{
@@ -470,6 +488,9 @@ func (s *Server) handleStripeEvent(ctx context.Context, sc *stripeClient, event 
 			end = inv.Lines.Data[0].Period.End
 		}
 		if userID != "" && plan != "" && inv.ID != "" {
+			if ok, err := s.userExists(ctx, userID); err != nil || !ok {
+				return err
+			}
 			return s.grantPeriodCredits(ctx, userID, plan, end*1000, "inv:"+inv.ID)
 		}
 		return nil
