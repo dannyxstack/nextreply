@@ -386,3 +386,63 @@ npm run tauri dev
 ```
 
 桌面端默认服务端地址：开发构建是 `http://127.0.0.1:8787`，正式构建在 Settings 中配置。
+
+---
+
+## 10. 产品网站
+
+### 10.1 域名
+
+主品牌 `novakitestudio.com` 下的平级子域名（Cloudflare 免费证书只覆盖一层子域名，不用 `api.nextreply.…` 这种两层的）：
+
+| 域名 | 用途 | 部署 |
+|---|---|---|
+| `nextreply.novakitestudio.com` | 网站：首页、价格、下载、隐私政策 / 服务条款 / 退款政策 | 静态文件（`apps/website/`），Cloudflare Pages 或任意静态托管 |
+| `nextreply-api.novakitestudio.com` | 服务端：桌面端 API、登录页、结账页、网页账户（阶段 B） | Go 服务（`PUBLIC_URL`），Cloudflare Tunnel |
+| `nextreply-admin.novakitestudio.com` | 管理后台（可选） | Cloudflare Tunnel + Cloudflare Access，只允许管理员邮箱 |
+| `nextreply.novakitestudio.com`（发信） | 登录验证码 `noreply@…`，Resend 单独验证该子域名（独立 DKIM / SPF） | |
+
+- 桌面端正式构建的默认服务端地址为 `https://nextreply-api.novakitestudio.com`。
+- 网页账户的 cookie 只绑定服务端域名（`__Host-` 前缀、`Secure`、`SameSite=Lax`），不与主品牌其他子域名共享。
+
+### 10.2 网站（阶段 A）
+
+- **纯静态**：原生 HTML / CSS / 少量 JS，无前端框架、无运行时依赖；`node build.mjs` 把公共布局（页头、页脚、语言切换、`hreflang`）套到各语言的页面正文上，输出到 `dist/`。
+- **语言**：英文为默认（`/`），中文在 `/zh/`。每个页面的正文按语言分别写（法律文本无法逐句模板化），布局和导航共用。
+- **页面**：首页（价值、使用流程、三种回复风格示例、隐私承诺）、价格、下载（Windows；macOS 即将推出）、隐私政策、服务条款、退款政策。
+- **价格只有一份**：价格页运行时请求服务端公开接口 `GET /v1/plans`，套餐数值（含后台运行配置里改过的每日上限、体验额度）始终与服务端一致；请求失败时显示提示，不显示过期数字。
+- **站点配置** `apps/website/site.json`：网站地址、API 地址、下载链接、联系邮箱。下载链接为空时显示"即将推出"。
+- **统计**：只用不写 cookie 的统计（如 Cloudflare Web Analytics），因此不需要 cookie 同意框。
+- **不放**：用户数、评价、媒体报道等无法核实的内容；产品截图未准备好之前用 HTML 绘制的界面示意（与真实界面一致）。
+
+`GET /v1/plans`（无需鉴权，`Access-Control-Allow-Origin: *`，缓存 5 分钟）：
+
+```json
+{
+  "currency": "usd",
+  "trial_credits": 10,
+  "signup_bonus": 50, "signup_bonus_days": 90,
+  "plans": [
+    { "id": "free", "label": "免费", "price_usd": 0, "daily_refill": 5, "daily_cap": 50, "monthly_credits": 0 },
+    { "id": "pro", "label": "Pro", "price_usd": 9.99, "monthly_credits": 1000, "daily_cap": 100, "daily_refill": 0 },
+    { "id": "pro_plus", "label": "Pro+", "price_usd": 19.99, "monthly_credits": 3000, "daily_cap": 300, "daily_refill": 0 }
+  ]
+}
+```
+
+### 10.3 网页账户（阶段 B）
+
+- 网页登录复用邮箱验证码，签发网页会话 cookie（不走 PKCE / 本机回调）。
+- 账户页：套餐、积分各桶、今日用量、设备列表（可下线）、升级（Stripe Checkout）、管理订阅（Stripe 客户门户）、**删除账号**（删除邮箱等个人数据，用量元数据匿名化保留）。
+- 网页注册不发注册赠送：赠送在第一次从桌面端登录时按"每台设备、每个账号各一次"发放，防止在网页批量注册领额度。
+- 服务端渲染的登录页、结账结果页改为中英双语（按 `Accept-Language`）。
+
+### 10.4 后续（阶段 C）
+
+更新日志、博客 / SEO、优惠码、邀请返积分、按地区定价——有真实用户之后再做。
+
+### 10.5 待确认
+
+- 法律页面的主体名称、联系邮箱、适用法律 / 地区（页面中以 `[待确认]` 标出），上线前需审阅。
+- 正式价格：Opus 下重度用户可能亏本，公开价格页前按模型评测结果确定。
+- Windows 安装包的托管地址（GitHub Releases 或对象存储）与代码签名。

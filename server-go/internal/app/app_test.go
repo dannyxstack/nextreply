@@ -660,3 +660,25 @@ func TestCostCapPausesAndDowngradesFreeUsers(t *testing.T) {
 		t.Fatal(r.status, h.ai.lastModel)
 	}
 }
+
+func TestPublicPlans(t *testing.T) {
+	h := newHarness(t)
+	r := h.do("GET", "/v1/plans", "", nil)
+	if r.status != 200 || r.header.Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatal(r.status, r.raw)
+	}
+	plans := r.body["plans"].([]any)
+	if len(plans) != 3 || num(r.body["trial_credits"]) != credits.TrialCredits {
+		t.Fatal(r.raw)
+	}
+	pro := plans[1].(map[string]any)
+	if pro["id"] != "pro" || pro["price_usd"] != 9.99 || num(pro["monthly_credits"]) != 1000 {
+		t.Fatal(pro)
+	}
+	// 后台改了运行配置，公开接口同步
+	h.srv.Settings().Apply(context.Background(), []settings.Change{{Key: "daily_cap.pro", Value: "120"}, {Key: "trial_credits", Value: "15"}}, "test")
+	r = h.do("GET", "/v1/plans", "", nil)
+	if num(r.body["plans"].([]any)[1].(map[string]any)["daily_cap"]) != 120 || num(r.body["trial_credits"]) != 15 {
+		t.Fatal(r.raw)
+	}
+}

@@ -13,6 +13,7 @@ AI 高情商回复助手：按全局快捷键框选聊天区域 → Vision 模�
 | `apps/desktop/src-tauri/src/` | Rust 核心：`flow.rs` 状态机、`capture/`、`overlay/`、`ai/`、`hotkey.rs`、`platform/` | |
 | `apps/desktop/src/` | 三个页面：`selector/`、`overlay/`、`settings/`；IPC 类型在 `shared/ipc.ts` | |
 | `server-go/` | 中转服务（Linux + Docker Compose 部署） | Go + SQLite + `anthropic-sdk-go` |
+| `apps/website/` | 产品网站 nextreply.novakitestudio.com（TECH_DESIGN §10） | 静态 HTML / CSS，`node build.mjs` 生成 `dist/` |
 
 ## 常用命令
 
@@ -21,6 +22,9 @@ AI 高情商回复助手：按全局快捷键框选聊天区域 → Vision 模�
 DEV_MODE=true MOCK_AI=true TOKEN_SECRET=dev-secret go run ./cmd/nextreply-server   # → http://127.0.0.1:8787
 go vet ./... && go test ./...
 docker compose up -d --build   # 部署，见 server-go/README.md
+
+# 网站（apps/website/）
+node build.mjs       # 生成 dist/；预览：python3 -m http.server -d dist 8080
 
 # 桌面端（apps/desktop/）
 npm run tauri dev    # 启动应用（会自动起 vite）

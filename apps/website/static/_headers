@@ -1,0 +1,7 @@
+# Cloudflare Pages 响应头（其他托管平台按同样的值配置）。
+# connect-src 需要包含 API 域名：价格页从 /v1/plans 读取套餐。
+/*
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self' https://nextreply-api.novakitestudio.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()

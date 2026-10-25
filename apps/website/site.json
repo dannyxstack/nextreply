@@ -1,0 +1,13 @@
+{
+  "siteUrl": "https://nextreply.novakitestudio.com",
+  "apiUrl": "https://nextreply-api.novakitestudio.com",
+  "brand": "Novakite Studio",
+  "brandUrl": "https://novakitestudio.com",
+  "contactEmail": "",
+  "legalDraft": true,
+  "legalUpdated": "2026-10-25",
+  "downloads": {
+    "windows": { "url": "", "version": "" },
+    "macos": { "url": "", "version": "" }
+  }
+}

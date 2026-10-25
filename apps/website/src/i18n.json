@@ -1,0 +1,42 @@
+{
+  "en": {
+    "langName": "English",
+    "switchTo": "中文",
+    "nav": { "home": "Home", "pricing": "Pricing", "download": "Download" },
+    "cta": "Download",
+    "footer": {
+      "tagline": "Better replies for any chat, in seconds.",
+      "product": "Product",
+      "legal": "Legal",
+      "privacy": "Privacy",
+      "terms": "Terms",
+      "refund": "Refunds",
+      "by": "A product by"
+    },
+    "download": { "windows": "Download for Windows", "soon": "coming soon" },
+    "legal": {
+      "draft": "Draft — this page is under review and will be finalised before launch.",
+      "contactTbd": "[contact email to be confirmed]"
+    }
+  },
+  "zh": {
+    "langName": "中文",
+    "switchTo": "English",
+    "nav": { "home": "首页", "pricing": "价格", "download": "下载" },
+    "cta": "下载",
+    "footer": {
+      "tagline": "任何聊天软件，几秒得到更好的回复。",
+      "product": "产品",
+      "legal": "条款",
+      "privacy": "隐私政策",
+      "terms": "服务条款",
+      "refund": "退款政策",
+      "by": "出品："
+    },
+    "download": { "windows": "下载 Windows 版", "soon": "即将推出" },
+    "legal": {
+      "draft": "草稿：本页面正在审阅，正式上线前会定稿。",
+      "contactTbd": "[联系邮箱待确认]"
+    }
+  }
+}

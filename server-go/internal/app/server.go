@@ -66,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	}
 
 	h("GET /v1/health", 0, s.health)
+	h("GET /v1/plans", 0, s.plans)
 	h("POST /v1/reply", maxReplyBody, s.reply)
 
 	h("POST /v1/device/register", maxJSONBody, s.deviceRegister)
