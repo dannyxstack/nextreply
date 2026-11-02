@@ -40,7 +40,9 @@ python3 -m http.server -d dist 8080            # 打开 http://127.0.0.1:8080
 
 ## 部署方式一：Docker Compose
 
-在服务器上（与服务端同一台或另一台）：
+**和服务端一起部署（推荐）**：在仓库根目录执行 `docker compose up -d --build`，同时启动服务端和网站（见 server-go/README.md「与网站一起部署」）。网站的配置照样写在本目录的 `.env`。
+
+**单独部署**（网站和服务端不在同一台机器时）：
 
 ```bash
 cd apps/website
@@ -53,7 +55,7 @@ curl -I http://127.0.0.1:8041/
 - 默认只监听宿主机 `127.0.0.1:8041`。生产环境用 Cloudflare Tunnel 把 `nextreply.novakitestudio.com` 转发到 `http://localhost:8041`（或宿主机 nginx 反向代理并负责 HTTPS）。
 - 测试机局域网直接访问：`.env` 中设置 `BIND_ADDR=0.0.0.0`、`API_URL=http://<机器 IP>:8787`（服务端也要设置 `BIND_ADDR=0.0.0.0`）。
 - 改了页面内容或 `API_URL` 后重新执行 `docker compose up -d --build`。
-- 容器名为 `nextreply-website`，镜像为 `nextreply-website:latest`；构建时可传 `VERSION=$(git rev-parse --short HEAD)` 写进镜像标签。从旧版本升级时先执行 `docker compose -p website down` 停掉按目录名命名的旧容器。
+- 容器名为 `nextreply-website`，镜像为 `nextreply-website:latest`；构建时可传 `VERSION=$(git rev-parse --short HEAD)` 写进镜像标签。从旧版本升级时先执行 `docker compose -p website down` 停掉按目录名命名的旧容器。同一台机器上不要同时使用根目录和本目录的 compose，两者会抢同一个容器名。
 
 ## 部署方式二：Cloudflare Pages
 

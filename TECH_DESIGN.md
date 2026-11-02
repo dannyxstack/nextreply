@@ -402,6 +402,7 @@ npm run tauri dev
 | `nextreply-admin.novakitestudio.com` | 管理后台（可选） | Cloudflare Tunnel + Cloudflare Access，只允许管理员邮箱 |
 | `nextreply.novakitestudio.com`（发信） | 登录验证码 `noreply@…`，Resend 单独验证该子域名（独立 DKIM / SPF） | |
 
+- 部署：仓库根目录的 `docker-compose.yml`（`include` 服务端与网站，项目名 `nextreply`，容器 `nextreply-server`、`nextreply-website`），同一台服务器上由 Cloudflare Tunnel 把 `nextreply-api…` 转发到 `localhost:8787`、把 `nextreply…` 转发到 `localhost:8041`。
 - 桌面端正式构建的默认服务端地址为 `https://nextreply-api.novakitestudio.com`。
 - 网页账户的 cookie 只绑定服务端域名（`__Host-` 前缀、`Secure`、`SameSite=Lax`），不与主品牌其他子域名共享。
 

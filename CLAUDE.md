@@ -18,6 +18,9 @@ AI 高情商回复助手：按全局快捷键框选聊天区域 → Vision 模�
 ## 常用命令
 
 ```bash
+# 部署（仓库根目录）：一条命令构建、启动服务端和网站
+docker compose up -d --build
+
 # 服务端（server-go/）
 DEV_MODE=true MOCK_AI=true TOKEN_SECRET=dev-secret go run ./cmd/nextreply-server   # → http://127.0.0.1:8787
 go vet ./... && go test ./...

@@ -164,12 +164,26 @@ curl http://127.0.0.1:8787/v1/health          # {"ok":true,"model":"..."}
 - 每次重新构建后，旧镜像会失去名字、只剩十六进制 ID（`<none>`），用 `docker image prune` 清理。
 - 数据卷名固定为 `server-go_data`（项目改名前的名字），不要修改，否则会挂上一个空卷。
 
-**从旧版本升级（项目名曾是目录名 `server-go`）**：先停掉旧项目的容器，数据卷会保留；再按新名字启动。旧的 Caddy 容器一并删除。
+### 与网站一起部署
+
+仓库根目录的 `docker-compose.yml` 用 `include` 同时引入服务端和网站（compose 项目名 `nextreply`），一条命令部署两个服务：
 
 ```bash
-docker compose -p server-go down        # 只删除容器，不删除数据卷
-docker compose up -d --build
-docker volume rm server-go_caddy_data server-go_caddy_config 2>/dev/null   # 早先 Caddy 方案留下的卷（可选）
+cd <repo>                                   # 仓库根目录
+VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
+docker compose ps                           # nextreply-server、nextreply-website
+docker compose logs -f server               # 服务名分别是 server、website
+```
+
+配置仍放在各自目录：`server-go/.env`、`apps/website/.env`（可选，见 apps/website/README.md）。本目录的 `docker-compose.yml` 也可以单独使用，但同一台机器上只用一种方式，否则两个项目会抢同一个容器名。
+
+**从旧版本升级**：先停掉旧项目的容器（只删容器，数据卷 `server-go_data` 保留），再从仓库根目录启动：
+
+```bash
+docker compose -p server-go down            # 项目名曾是目录名 server-go
+docker compose -p nextreply-server down     # 如果已经按单独部署的新名字启动过
+docker compose -p website down              # 网站旧容器（如有）
+cd <repo> && docker compose up -d --build
 ```
 
 | 操作 | 命令 |

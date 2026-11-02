@@ -1,0 +1,13 @@
+# NextReply 一键部署：服务端（API + 管理后台）和网站。
+#
+#   docker compose up -d --build                       # 在仓库根目录执行，同时构建、启动两个服务
+#   VERSION=$(git rev-parse --short HEAD) docker compose up -d --build   # 把提交号写进镜像标签
+#
+# 配置仍分别放在各自目录：server-go/.env（服务端）、apps/website/.env（网站，可选）。
+# 两个子目录的 docker-compose.yml 也可以单独使用。见 server-go/README.md、apps/website/README.md。
+
+name: nextreply
+
+include:
+  - server-go/docker-compose.yml
+  - apps/website/docker-compose.yml
