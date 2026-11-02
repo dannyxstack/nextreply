@@ -53,6 +53,7 @@ curl -I http://127.0.0.1:8041/
 - 默认只监听宿主机 `127.0.0.1:8041`。生产环境用 Cloudflare Tunnel 把 `nextreply.novakitestudio.com` 转发到 `http://localhost:8041`（或宿主机 nginx 反向代理并负责 HTTPS）。
 - 测试机局域网直接访问：`.env` 中设置 `BIND_ADDR=0.0.0.0`、`API_URL=http://<机器 IP>:8787`（服务端也要设置 `BIND_ADDR=0.0.0.0`）。
 - 改了页面内容或 `API_URL` 后重新执行 `docker compose up -d --build`。
+- 容器名为 `nextreply-website`，镜像为 `nextreply-website:latest`；构建时可传 `VERSION=$(git rev-parse --short HEAD)` 写进镜像标签。从旧版本升级时先执行 `docker compose -p website down` 停掉按目录名命名的旧容器。
 
 ## 部署方式二：Cloudflare Pages
 

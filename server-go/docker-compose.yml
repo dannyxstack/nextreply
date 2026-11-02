@@ -6,13 +6,19 @@
 # 服务本身只提供 HTTP；HTTPS 由 Cloudflare Tunnel 或宿主机上的 nginx（Let's Encrypt）负责。
 # 测试环境可以直接用 HTTP。详见 README.md。
 
+# 固定项目名和容器名：不随目录名变化，docker ps 里一眼能认出来
+name: nextreply-server
+
 services:
   server:
     build:
       context: .
       args:
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
-    image: nextreply-server:latest
+        # 写进镜像标签，docker inspect 可以看到是哪个版本：VERSION=$(git rev-parse --short HEAD) docker compose build
+        VERSION: ${VERSION:-dev}
+    image: nextreply-server:${IMAGE_TAG:-latest}
+    container_name: nextreply-server
     restart: unless-stopped
     env_file: .env
     environment:
@@ -39,3 +45,5 @@ services:
 
 volumes:
   data:
+    # 沿用项目改名前的卷名（原项目名为目录名 server-go）。不能改：改了就会挂上一个新的空卷，线上数据"消失"
+    name: server-go_data

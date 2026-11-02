@@ -151,6 +151,27 @@ curl http://127.0.0.1:8787/v1/health          # {"ok":true,"model":"..."}
 
 ## 运维
 
+### 容器与镜像名称
+
+- compose 项目名、容器名都是 `nextreply-server`，镜像为 `nextreply-server:latest`（`IMAGE_TAG` 可改标签）。
+- 构建时传入版本号，之后可以用 `docker inspect` 查看运行的是哪个提交：
+
+  ```bash
+  VERSION=$(git rev-parse --short HEAD) docker compose up -d --build
+  docker inspect nextreply-server --format '{{index .Config.Labels "org.opencontainers.image.version"}}'
+  ```
+
+- 每次重新构建后，旧镜像会失去名字、只剩十六进制 ID（`<none>`），用 `docker image prune` 清理。
+- 数据卷名固定为 `server-go_data`（项目改名前的名字），不要修改，否则会挂上一个空卷。
+
+**从旧版本升级（项目名曾是目录名 `server-go`）**：先停掉旧项目的容器，数据卷会保留；再按新名字启动。旧的 Caddy 容器一并删除。
+
+```bash
+docker compose -p server-go down        # 只删除容器，不删除数据卷
+docker compose up -d --build
+docker volume rm server-go_caddy_data server-go_caddy_config 2>/dev/null   # 早先 Caddy 方案留下的卷（可选）
+```
+
 | 操作 | 命令 |
 |---|---|
 | 查看日志 | `docker compose logs -f server`（JSON，一行一个事件） |

@@ -12,6 +12,11 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/nextreply-server ./cmd/nextreply
 
 # 运行：distroless（无 shell、非 root 用户 65532）
 FROM gcr.io/distroless/static-debian12:nonroot
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="nextreply-server" \
+      org.opencontainers.image.description="NextReply relay server (Go + SQLite)" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/dannyxstack/nextreply"
 COPY --from=build /out/nextreply-server /nextreply-server
 # 预先建好数据目录并交给非 root 用户，命名卷首次挂载时会继承这个属主
 COPY --from=build --chown=65532:65532 /out/data /data

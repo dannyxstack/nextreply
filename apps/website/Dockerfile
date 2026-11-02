@@ -9,6 +9,11 @@ RUN node build.mjs --api "$API_URL" && rm -f dist/_headers
 # 运行：nginx 提供静态文件；安全响应头见 nginx.conf.template（与 Cloudflare Pages 的 static/_headers 一致）
 FROM nginx:1.27-alpine
 ARG API_URL=https://nextreply-api.novakitestudio.com
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="nextreply-website" \
+      org.opencontainers.image.description="NextReply website (static pages + nginx)" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/dannyxstack/nextreply"
 # 官方镜像启动时用 envsubst 渲染 /etc/nginx/templates/*.template，只替换已定义的环境变量（$uri 等不受影响）
 ENV API_URL=${API_URL}
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template

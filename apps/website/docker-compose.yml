@@ -5,13 +5,18 @@
 #
 # 生产环境由 Cloudflare Tunnel / 宿主机 nginx 提供 HTTPS 并转发到本机端口（见 README）。
 
+# 固定项目名和容器名：不随目录名变化，docker ps 里一眼能认出来
+name: nextreply-website
+
 services:
   website:
     build:
       context: .
       args:
         API_URL: ${API_URL:-https://nextreply-api.novakitestudio.com}
-    image: nextreply-website:latest
+        VERSION: ${VERSION:-dev}
+    image: nextreply-website:${IMAGE_TAG:-latest}
+    container_name: nextreply-website
     restart: unless-stopped
     # 默认只对本机开放；测试机需要局域网访问时在 .env 中设置 BIND_ADDR=0.0.0.0
     ports:
